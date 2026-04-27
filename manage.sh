@@ -74,7 +74,7 @@ function install_conda {
 }
 
 CONDA_ENV_TAG=2026-03-05
-CONDA_ENV_NAME=IC-${PYTHON_VERSION}-${CONDA_ENV_TAG}
+CONDA_ENV_NAME=IC-HDDEMO
 
 function make_environment {
     YML_FILENAME=environment-${CONDA_ENV_NAME}.yml

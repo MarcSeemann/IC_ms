@@ -35,11 +35,13 @@ from .  components import city
 from .  components import print_every
 from .  components import collect
 from .  components import copy_mc_info
-from .  components import deconv_pmt
+from .  components import baseline_subtractor
+from .  components import calibrate_fibers_lg
 from .  components import calibrate_pmts
 from .  components import calibrate_sipms
 from .  components import zero_suppress_wfs
 from .  components import wf_from_files
+from .  components import get_number_of_active_fibers
 from .  components import get_number_of_active_pmts
 from .  components import compute_and_write_pmaps
 from .  components import get_actual_sipm_thr
@@ -74,18 +76,18 @@ def irene( files_in        : OneOrManyFiles
     #### Define data transformations
 
     # Raw WaveForm to Corrected WaveForm
-    rwf_to_cwf       = fl.map(deconv_pmt(detector_db, run_number, n_baseline),
-                              args = "pmt",
-                              out  = "cwf")
+    fiber_lg_rwf_to_bswf       = fl.map(baseline_subtractor(n_baseline),  
+                              args = "fiber_lg",
+                              out  = "bsfiber_lg")
 
     # Corrected WaveForm to Calibrated Corrected WaveForm
-    cwf_to_ccwf      = fl.map(calibrate_pmts(detector_db, run_number, n_maw, thr_maw),
-                              args = "cwf",
-                              out  = ("ccwfs", "ccwfs_maw", "cwf_sum", "cwf_sum_maw"))
+    bswf_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number, n_maw, thr_maw),
+                              args = "bsfiber_lg",
+                              out  = ("cbsfiber_lg", "cbsfiber_lg_maw", "bsfiber_lg_sum", "bsfiber_lg_sum_maw"))
 
     # Find where waveform is above threshold
-    zero_suppress    = fl.map(zero_suppress_wfs(thr_csum_s1, thr_csum_s2),
-                              args = ("cwf_sum", "cwf_sum_maw"),
+    fiber_lg_zero_suppress    = fl.map(zero_suppress_wfs(thr_csum_s1, thr_csum_s2),
+                              args = ("bsfiber_lg_sum", "bsfiber_lg_sum_maw"),
                               out  = ("s1_indices", "s2_indices", "s2_energies"))
 
     # Remove baseline and calibrate SiPMs
@@ -101,7 +103,7 @@ def irene( files_in        : OneOrManyFiles
 
         # Define writers...
         write_event_info_   = run_and_event_writer(h5out)
-        write_trigger_info_ = trigger_writer      (h5out, get_number_of_active_pmts(detector_db, run_number))
+        write_trigger_info_ = trigger_writer      (h5out, get_number_of_active_fibers(detector_db, run_number) + get_number_of_active_pmts(detector_db, run_number))
 
         # ... and make them sinks
 
@@ -120,9 +122,9 @@ def irene( files_in        : OneOrManyFiles
                       pipe   = pipe(fl.slice(*event_range, close_all=True),
                                     print_every(print_mod),
                                     event_count_in.spy,
-                                    rwf_to_cwf,
-                                    cwf_to_ccwf,
-                                    zero_suppress,
+                                    fiber_lg_rwf_to_bswf,
+                                    bswf_to_cbswf,
+                                    fiber_lg_zero_suppress,
                                     compute_pmaps,
                                     event_count_out.spy,
                                     fl.branch("event_number", evtnum_collect.sink),

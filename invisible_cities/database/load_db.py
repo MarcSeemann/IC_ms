@@ -7,6 +7,7 @@ from functools import lru_cache
 
 
 class DetDB:
+    hddemo  = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.HDDEMODB.sqlite3'
     new     = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.NEWDB.sqlite3'
     demopp  = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.DEMOPPDB.sqlite3'
     next100 = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.NEXT100DB.sqlite3'
@@ -22,7 +23,6 @@ def get_db(db):
 # 3012 was the first SiPM calibration after remapping.
 runNumberForMC = 3012
 
-@lru_cache(maxsize=10)
 def DataPMT(db_file, run_number=1e5):
     if run_number == 0:
         run_number = runNumberForMC
@@ -31,7 +31,7 @@ def DataPMT(db_file, run_number=1e5):
 
     sql = '''select pos.SensorID, map.ElecID "ChannelID", Label "PmtID",
 case when msk.SensorID is NULL then 1 else 0 end "Active",
-X, Y, coeff_blr, coeff_c, abs(Centroid) "adc_to_pes", ErrorCentroid "adc_to_pes_err", noise_rms, Sigma, ErrorSigma
+X, Y, coeff_blr, coeff_c, abs(Centroid) "adc_to_pes", noise_rms, Sigma
 from ChannelPosition as pos INNER JOIN ChannelMapping
 as map ON pos.SensorID = map.SensorID LEFT JOIN
 (select * from PmtNoiseRms where MinRun <= {0} and (MaxRun >= {0} or MaxRun is NULL))
@@ -62,13 +62,13 @@ def DataSiPM(db_file, run_number=1e5):
 
     sql='''select pos.SensorID, map.ElecID "ChannelID",
 case when msk.SensorID is NULL then 1 else 0 end "Active",
-X, Y, Centroid "adc_to_pes", ErrorCentroid "adc_to_pes_err", Sigma, ErrorSigma
+X, Y, Centroid "adc_to_pes", Sigma
 from ChannelPosition as pos INNER JOIN ChannelGain as gain
 ON pos.SensorID = gain.SensorID INNER JOIN ChannelMapping as map
 ON pos.SensorID = map.SensorID LEFT JOIN
 (select * from ChannelMask where MinRun <= {0} and {0} <= MaxRun) as msk
 ON pos.SensorID = msk.SensorID
-where pos.SensorID > 100
+where pos.Label LIKE 'SiPM%'
 and pos.MinRun <= {0} and {0} <= pos.MaxRun
 and gain.MinRun <= {0} and {0} <= gain.MaxRun
 and map.MinRun <= {0} and {0} <= map.MaxRun
@@ -80,6 +80,34 @@ order by pos.SensorID'''.format(abs(run_number))
     if not data.Sigma.values.any():
         data.Sigma = 2.24
 
+    return data
+
+@lru_cache(maxsize=10)
+def DataFiber(db_file, run_number=1e5):
+    if run_number == 0:
+        run_number = runNumberForMC
+
+    conn = sqlite3.connect(get_db(db_file))
+
+    sql='''select pos.SensorID, map.ElecID "ChannelID",
+case when msk.SensorID is NULL then 1 else 0 end "Active",
+X, Y,
+gain.Centroid "adc_to_pes", gain.ErrorCentroid "adc_to_pes_err", gain.Sigma, gain.ErrorSigma,
+amp.Centroid "amplification", amp.ErrorCentroid "amplification_err", amp.Sigma "amp_Sigma", amp.ErrorSigma "amp_ErrorSigma"
+from ChannelPosition as pos
+INNER JOIN ChannelGain as gain ON pos.SensorID = gain.SensorID
+INNER JOIN ChannelAmplification as amp ON pos.SensorID = amp.SensorID
+INNER JOIN ChannelMapping as map ON pos.SensorID = map.SensorID LEFT JOIN
+(select * from ChannelMask where MinRun <= {0} and {0} <= MaxRun) as msk
+ON pos.SensorID = msk.SensorID
+where pos.Label = 'Fiber'
+and pos.MinRun <= {0} and {0} <= pos.MaxRun
+and gain.MinRun <= {0} and {0} <= gain.MaxRun
+and amp.MinRun <= {0} and {0} <= amp.MaxRun
+and map.MinRun <= {0} and {0} <= map.MaxRun
+order by pos.SensorID'''.format(abs(run_number))
+    data = pd.read_sql_query(sql, conn)
+    conn.close()
     return data
 
 @lru_cache(maxsize=10)

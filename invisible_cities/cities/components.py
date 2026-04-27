@@ -443,6 +443,10 @@ def get_run_number(h5in):
 
     raise tb.exceptions.NoSuchNodeError(f"No node runInfo or RunInfo in file {h5in}")
 
+def get_fiber_lg_wfs(h5in, wf_type):
+    if   wf_type is WfType.rwf : return h5in.root.RD.fiberrwf_lg
+    elif wf_type is WfType.mcrd: return h5in.root.   fiberrwf_lg
+    else                       : raise  TypeError(f"Invalid WfType: {type(wf_type)}")
 
 def get_pmt_wfs(h5in, wf_type):
     if   wf_type is WfType.rwf : return h5in.root.RD.pmtrwf
@@ -470,6 +474,9 @@ def get_number_of_active_pmts(detector_db, run_number):
     datapmt = load_db.DataPMT(detector_db, run_number)
     return np.count_nonzero(datapmt.Active.values.astype(bool))
 
+def get_number_of_active_fibers(detector_db, run_number):
+    datafiber = load_db.DataFiber(detector_db, run_number)
+    return np.count_nonzero(datafiber.Active.values.astype(bool))
 
 def check_nonempty_indices(s1_indices, s2_indices):
     return s1_indices.size and s2_indices.size
@@ -564,20 +571,21 @@ def wf_from_files(paths, wf_type):
             try:
                 event_info  = get_event_info  (h5in)
                 run_number  = get_run_number  (h5in)
-                pmt_wfs     = get_pmt_wfs     (h5in, wf_type)
+                #pmt_wfs     = get_pmt_wfs     (h5in, wf_type)
+                fiber_lg_wfs     = get_fiber_lg_wfs     (h5in, wf_type)
                 sipm_wfs    = get_sipm_wfs    (h5in, wf_type)
                 (trg_type ,
                  trg_chann) = get_trigger_info(h5in)
             except tb.exceptions.NoSuchNodeError:
                 continue
 
-            check_lengths(pmt_wfs, sipm_wfs, event_info, trg_type, trg_chann)
+            check_lengths(sipm_wfs, fiber_lg_wfs, event_info, trg_type, trg_chann)
 
-            for pmt, sipm, evtinfo, trtype, trchann in zip(pmt_wfs, sipm_wfs, event_info, trg_type, trg_chann):
+            for  sipm, fiber_lg, evtinfo, trtype, trchann in zip(sipm_wfs, fiber_lg_wfs, event_info, trg_type, trg_chann):
                 event_number, timestamp         = evtinfo.fetch_all_fields()
                 if trtype  is not None: trtype  = trtype .fetch_all_fields()[0]
 
-                yield dict(pmt=pmt, sipm=sipm, run_number=run_number,
+                yield dict(sipm=sipm, fiber_lg=fiber_lg, run_number=run_number,
                            event_number=event_number, timestamp=timestamp,
                            trigger_type=trtype, trigger_channels=trchann)
 
@@ -735,7 +743,11 @@ def dhits_from_files(paths: List[str]) -> Iterator[Dict[str,Union[HitCollection,
 
 def sensor_data(path, wf_type):
     with tb.open_file(path, "r") as h5in:
-        if   wf_type is WfType.rwf :   (pmt_wfs, sipm_wfs) = (h5in.root.RD .pmtrwf,   h5in.root.RD .sipmrwf)
+        if   wf_type is WfType.rwf :
+            if hasattr(h5in.root.RD, 'pmtrwf'):
+                (pmt_wfs, sipm_wfs) = (h5in.root.RD.pmtrwf, h5in.root.RD.sipmrwf)
+            else:
+                (pmt_wfs, sipm_wfs) = (h5in.root.RD.fiberrwf_lg, h5in.root.RD.sipmrwf)
         elif wf_type is WfType.mcrd:   (pmt_wfs, sipm_wfs) = (h5in.root.    pmtrd ,   h5in.root.    sipmrd )
         else                       :   raise TypeError(f"Invalid WfType: {type(wf_type)}")
         _, NPMT ,  PMTWL =  pmt_wfs.shape
@@ -743,6 +755,13 @@ def sensor_data(path, wf_type):
         return SensorData(NPMT=NPMT, PMTWL=PMTWL, NSIPM=NSIPM, SIPMWL=SIPMWL)
 
 ####### Transformers ########
+def baseline_subtractor(n_baseline):
+    def subtract_baseline(rwf):
+        # Subtract baseline using mode of first n points
+        # (baseline - rwf) makes signal pulses positive
+        return csf.modes(rwf[:, :n_baseline]) - rwf
+    return subtract_baseline
+
 
 def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
@@ -761,8 +780,8 @@ def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                     stride       = s2_stride,
                     rebin_stride = s2_rebin_stride)
 
-    datapmt = load_db.DataPMT(detector_db, run_number)
-    pmt_ids = datapmt.SensorID[datapmt.Active.astype(bool)].values
+    datafiber = load_db.DataFiber(detector_db, run_number)
+    pmt_ids = datafiber.SensorID[datafiber.Active.astype(bool)].values
 
     def build_pmap(ccwf, s1_indx, s2_indx, sipmzs): # -> PMap
         return pkf.get_pmap(ccwf, s1_indx, s2_indx, sipmzs,
@@ -770,6 +789,18 @@ def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                             pmt_samp_wid, sipm_samp_wid)
 
     return build_pmap
+
+
+
+def calibrate_fibers_lg(dbfile, run_number, n_maw, thr_maw):
+    def calibrate(cwf):
+        # Conversion of adc_to_pes equal to 1 for all channels
+        adc_to_pes = np.ones(cwf.shape[0])
+        return csf.calibrate_pmts(cwf,
+                                  adc_to_pes = adc_to_pes,
+                                  n_maw      = n_maw,
+                                  thr_maw    = thr_maw)
+    return calibrate
 
 
 def calibrate_pmts(dbfile, run_number, n_maw, thr_maw):
@@ -1226,7 +1257,7 @@ def compute_and_write_pmaps(detector_db, run_number, pmt_samp_wid, sipm_samp_wid
     compute_pmap     = fl.map(build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                                          s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
                                          s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2),
-                              args = ("ccwfs", "s1_indices", "s2_indices", "sipm"),
+                              args = ("cbsfiber_lg", "s1_indices", "s2_indices", "sipm"),
                               out  = "pmap")
 
     # Filter events with zero peaks
@@ -1257,6 +1288,7 @@ def compute_and_write_pmaps(detector_db, run_number, pmt_samp_wid, sipm_samp_wid
     compute_pmaps = pipe(*filter(None, fn_list))
 
     return compute_pmaps, empty_indices, empty_pmaps
+
 
 
 @check_annotations
