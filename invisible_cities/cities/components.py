@@ -448,6 +448,12 @@ def get_fiber_lg_wfs(h5in, wf_type):
     elif wf_type is WfType.mcrd: return h5in.root.   fiberrwf_lg
     else                       : raise  TypeError(f"Invalid WfType: {type(wf_type)}")
 
+
+def get_fiber_hg_wfs(h5in, wf_type):
+    if   wf_type is WfType.rwf : return h5in.root.RD.fiberrwf_hg
+    elif wf_type is WfType.mcrd: return h5in.root.   fiberrwf_hg
+    else                       : raise  TypeError(f"Invalid WfType: {type(wf_type)}")
+
 def get_pmt_wfs(h5in, wf_type):
     if   wf_type is WfType.rwf : return h5in.root.RD.pmtrwf
     elif wf_type is WfType.mcrd: return h5in.root.   pmtrd
@@ -571,21 +577,51 @@ def wf_from_files(paths, wf_type):
             try:
                 event_info  = get_event_info  (h5in)
                 run_number  = get_run_number  (h5in)
-                #pmt_wfs     = get_pmt_wfs     (h5in, wf_type)
-                fiber_lg_wfs     = get_fiber_lg_wfs     (h5in, wf_type)
+                pmt_wfs     = get_pmt_wfs     (h5in, wf_type)
                 sipm_wfs    = get_sipm_wfs    (h5in, wf_type)
                 (trg_type ,
                  trg_chann) = get_trigger_info(h5in)
             except tb.exceptions.NoSuchNodeError:
                 continue
 
-            check_lengths(sipm_wfs, fiber_lg_wfs, event_info, trg_type, trg_chann)
+            check_lengths(pmt_wfs, sipm_wfs, event_info, trg_type, trg_chann)
 
-            for  sipm, fiber_lg, evtinfo, trtype, trchann in zip(sipm_wfs, fiber_lg_wfs, event_info, trg_type, trg_chann):
+            for  pmt, sipm, evtinfo, trtype, trchann in zip(pmt_wfs, sipm_wfs, event_info, trg_type, trg_chann):
                 event_number, timestamp         = evtinfo.fetch_all_fields()
                 if trtype  is not None: trtype  = trtype .fetch_all_fields()[0]
 
-                yield dict(sipm=sipm, fiber_lg=fiber_lg, run_number=run_number,
+                yield dict(pmt=pmt, sipm=sipm, run_number=run_number,
+                           event_number=event_number, timestamp=timestamp,
+                           trigger_type=trtype, trigger_channels=trchann)
+
+
+def wf_from_files_irene_dual_gain(paths, wf_type):
+    for path in paths:
+        with tb.open_file(path, "r") as h5in:
+            try:
+                event_info    = get_event_info    (h5in)
+                run_number    = get_run_number    (h5in)
+                fiber_hg_wfs  = get_fiber_hg_wfs  (h5in, wf_type)
+                fiber_lg_wfs  = get_fiber_lg_wfs  (h5in, wf_type)
+                sipm_wfs      = get_sipm_wfs      (h5in, wf_type)
+                (trg_type,
+                 trg_chann)   = get_trigger_info  (h5in)
+            except tb.exceptions.NoSuchNodeError:
+                continue
+
+            check_lengths(sipm_wfs, fiber_hg_wfs, fiber_lg_wfs, event_info, trg_type, trg_chann)
+
+            for sipm, fiber_hg, fiber_lg, evtinfo, trtype, trchann in zip(sipm_wfs,
+                                                                           fiber_hg_wfs,
+                                                                           fiber_lg_wfs,
+                                                                           event_info,
+                                                                           trg_type,
+                                                                           trg_chann):
+                event_number, timestamp         = evtinfo.fetch_all_fields()
+                if trtype  is not None: trtype  = trtype .fetch_all_fields()[0]
+
+                yield dict(sipm=sipm, fiber_hg=fiber_hg, fiber_lg=fiber_lg,
+                           run_number=run_number,
                            event_number=event_number, timestamp=timestamp,
                            trigger_type=trtype, trigger_channels=trchann)
 
@@ -755,13 +791,6 @@ def sensor_data(path, wf_type):
         return SensorData(NPMT=NPMT, PMTWL=PMTWL, NSIPM=NSIPM, SIPMWL=SIPMWL)
 
 ####### Transformers ########
-def baseline_subtractor(n_baseline):
-    def subtract_baseline(rwf):
-        # Subtract baseline using mode of first n points
-        # (baseline - rwf) makes signal pulses positive
-        return csf.modes(rwf[:, :n_baseline]) - rwf
-    return subtract_baseline
-
 
 def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
@@ -790,7 +819,11 @@ def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
 
     return build_pmap
 
-
+def baseline_subtractor(n_baseline):
+    def subtract_baseline(rwf):
+        return -csf.subtract_baseline_n(rwf, n_baseline)
+    return subtract_baseline
+    
 
 def calibrate_fibers_lg(dbfile, run_number, n_maw, thr_maw):
     def calibrate(cwf):
@@ -849,6 +882,19 @@ def zero_suppress_wfs(thr_csum_s1, thr_csum_s2):
         return (pkf.indices_and_wf_above_threshold(ccwf_sum_maw, thr_csum_s1).indices,
                 pkf.indices_and_wf_above_threshold(ccwf_sum    , thr_csum_s2).indices)
     return ccwfs_to_zs
+
+
+def zero_suppress_wfs_hg(thr_csum_s1):
+    def ccwf_to_s1_indices(ccwf_sum_maw):
+        return pkf.indices_and_wf_above_threshold(ccwf_sum_maw, thr_csum_s1).indices
+    return ccwf_to_s1_indices
+
+
+def zero_suppress_wfs_lg(thr_csum_s2):
+    def ccwf_to_s2_indices_and_energies(ccwf_sum):
+        zs = pkf.indices_and_wf_above_threshold(ccwf_sum, thr_csum_s2)
+        return zs.indices, zs.energies
+    return ccwf_to_s2_indices_and_energies
 
 
 def compute_pe_resolution(rms, adc_to_pes):

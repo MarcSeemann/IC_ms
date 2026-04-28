@@ -86,6 +86,13 @@ def subtract_baseline(wfs, *, bls_mode=BlsMode.mean):
         raise TypeError(f"Unrecognized baseline subtraction option: {bls_mode}")
 
 
+def subtract_baseline_n(wfs, n_baseline):
+    """
+    Subtract per-sensor mode computed on the first n_baseline samples.
+    """
+    return wfs - modes(wfs[:, :n_baseline])
+
+
 def calibrate_wfs(wfs, adc_to_pes):
     """
     Convert waveforms in adc to pes. Masked channels
