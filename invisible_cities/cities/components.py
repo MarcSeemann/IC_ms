@@ -465,6 +465,23 @@ def get_sipm_wfs(h5in, wf_type):
     else                       : raise  TypeError(f"Invalid WfType: {type(wf_type)}")
 
 
+def mask_sipmrwf(h5in, sipm, wf_type):
+    sipms_to_drop = np.array([13036, 13037, 13038, 13039], dtype=np.int64) #TODO: fix it at db level, now hardcoded, they do are saved but without signal
+
+    if wf_type is not WfType.rwf:
+        return sipm
+
+    if not hasattr(h5in.root, "Sensors") or not hasattr(h5in.root.Sensors, "DataSiPM"):
+        return sipm
+
+    data_sipm = h5in.root.Sensors.DataSiPM[:]
+    if "channel" not in data_sipm.dtype.names:
+        return sipm
+
+    sipm_keep = ~np.isin(data_sipm["channel"], sipms_to_drop)
+    return sipm[sipm_keep]
+
+
 def get_trigger_info(h5in):
     group            = h5in.root.Trigger if "Trigger" in h5in.root else ()
     trigger_type     = group.trigger if "trigger" in group else repeat(None)
@@ -596,6 +613,7 @@ def wf_from_files(paths, wf_type):
 
 
 def wf_from_files_irene_dual_gain(paths, wf_type):
+
     for path in paths:
         with tb.open_file(path, "r") as h5in:
             try:
@@ -617,6 +635,8 @@ def wf_from_files_irene_dual_gain(paths, wf_type):
                                                                            event_info,
                                                                            trg_type,
                                                                            trg_chann):
+                sipm = mask_sipmrwf(h5in, sipm, wf_type)
+
                 event_number, timestamp         = evtinfo.fetch_all_fields()
                 if trtype  is not None: trtype  = trtype .fetch_all_fields()[0]
 
@@ -810,11 +830,11 @@ def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                     rebin_stride = s2_rebin_stride)
 
     datafiber = load_db.DataFiber(detector_db, run_number)
-    pmt_ids = datafiber.SensorID[datafiber.Active.astype(bool)].values
+    fiber_ids = datafiber.SensorID[datafiber.Active.astype(bool)].values
 
     def build_pmap(ccwf, s1_indx, s2_indx, sipmzs): # -> PMap
         return pkf.get_pmap(ccwf, s1_indx, s2_indx, sipmzs,
-                            s1_params, s2_params, thr_sipm_s2, pmt_ids,
+                            s1_params, s2_params, thr_sipm_s2, fiber_ids,
                             pmt_samp_wid, sipm_samp_wid)
 
     return build_pmap
@@ -848,11 +868,10 @@ def calibrate_pmts(dbfile, run_number, n_maw, thr_maw):
                                   thr_maw    = thr_maw)
     return calibrate_pmts
 
-
 def calibrate_sipms(dbfile, run_number, thr_sipm):
-    DataSiPM   = load_db.DataSiPM(dbfile, run_number)
-    adc_to_pes = np.abs(DataSiPM.adc_to_pes.values)
-
+    DataSiPM    = load_db.DataSiPM(dbfile, run_number)
+    adc_to_pes  = np.abs(DataSiPM.adc_to_pes.values)
+    
     def calibrate_sipms(rwf):
         return csf.calibrate_sipms(rwf,
                                    adc_to_pes = adc_to_pes,
@@ -860,7 +879,6 @@ def calibrate_sipms(dbfile, run_number, thr_sipm):
                                    bls_mode   = BlsMode.mode)
 
     return calibrate_sipms
-
 
 def calibrate_with_mean(dbfile, run_number):
     DataSiPM   = load_db.DataSiPM(dbfile, run_number)

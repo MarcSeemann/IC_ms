@@ -119,7 +119,8 @@ def irene( files_in        : OneOrManyFiles
 
         # Define writers...
         write_event_info_   = run_and_event_writer(h5out)
-        write_trigger_info_ = trigger_writer      (h5out, get_number_of_active_fibers(detector_db, run_number) + get_number_of_active_pmts(detector_db, run_number))
+        #write_trigger_info_ = trigger_writer      (h5out, get_number_of_active_fibers(detector_db, run_number) + get_number_of_active_pmts(detector_db, run_number))
+        write_trigger_info_ = trigger_writer      (h5out, 48) #TODO: fix it at data level building a table of length nfibers + npmts that can be used as trigger
 
         # ... and make them sinks
 
