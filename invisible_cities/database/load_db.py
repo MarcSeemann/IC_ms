@@ -8,6 +8,7 @@ from functools import lru_cache
 
 class DetDB:
     hddemo  = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.HDDEMODB.sqlite3'
+    hddemojb  = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.HDDEMODBjb.sqlite3'
     new     = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.NEWDB.sqlite3'
     demopp  = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.DEMOPPDB.sqlite3'
     next100 = os.environ['ICTDIR'] + '/invisible_cities/database/localdb.NEXT100DB.sqlite3'
@@ -68,7 +69,7 @@ ON pos.SensorID = gain.SensorID INNER JOIN ChannelMapping as map
 ON pos.SensorID = map.SensorID LEFT JOIN
 (select * from ChannelMask where MinRun <= {0} and {0} <= MaxRun) as msk
 ON pos.SensorID = msk.SensorID
-where pos.Label LIKE 'SiPM%'
+where pos.SensorID >= 1000
 and pos.MinRun <= {0} and {0} <= pos.MaxRun
 and gain.MinRun <= {0} and {0} <= gain.MaxRun
 and map.MinRun <= {0} and {0} <= map.MaxRun

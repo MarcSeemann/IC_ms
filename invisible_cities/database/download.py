@@ -70,12 +70,14 @@ def loadDB(dbname : str, tables : list):
         copy_all_rows(conn_sqlite, cursor_sqlite, cursor_mysql, table)
 
 
-dbnames        = ('NEWDB', 'DEMOPPDB', 'NEXT100DB', 'Flex100DB')
+dbnames        = ('NEWDB', 'DEMOPPDB', 'NEXT100DB', 'Flex100DB', 'HDDEMODB')
 common_tables  = ('DetectorGeo','PmtBlr','ChannelGain','ChannelMapping','ChannelMask',
                   'PmtNoiseRms','ChannelPosition','SipmBaseline', 'SipmNoisePDF',
                   'PMTFEMapping', 'PMTFELowFrequencyNoise')
-extended       = dict(NEXT100DB = ("Activity", "Efficiency"))
 
+extended       = dict(NEXT100DB = ("Activity", "Efficiency"),
+                      HDDEMODB = ("ChannelAmplification",))
+                      
 table_dict = dict.fromkeys(dbnames, common_tables)
 for dbname, extra in extended.items():
     table_dict[dbname] += extra
