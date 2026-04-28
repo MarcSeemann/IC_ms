@@ -51,6 +51,7 @@ from .. dataflow import dataflow as fl
 from .  components import city
 from .  components import print_every
 from .  components import sensor_data
+from .  components import detect_wf_type
 from .  components import wf_from_files
 from .  components import waveform_binner
 from .  components import waveform_integrator
@@ -76,9 +77,12 @@ def trude( files_in         : OneOrManyFiles
     if proc_mode not in SiPMCalibMode:
         raise ValueError(f"Unrecognized processing mode: {proc_mode}")
 
+    # Auto-detect waveform type based on file structure
+    wf_type = detect_wf_type(files_in[0])
+    
     bin_edges   = np.arange(min_bin, max_bin, bin_width)
     bin_centres = shift_to_bin_centers(bin_edges)
-    sd          = sensor_data(files_in[0], WfType.rwf)
+    sd          = sensor_data(files_in[0], wf_type)
     nsipm       = sd.NSIPM
     wf_length   = sd.SIPMWL
     shape       = nsipm, len(bin_centres)
@@ -111,7 +115,7 @@ def trude( files_in         : OneOrManyFiles
                                       bin_centres = bin_centres)
 
         out = fl.push(
-            source = wf_from_files(files_in, WfType.rwf),
+            source = wf_from_files(files_in, wf_type),
             pipe   = fl.pipe(fl.slice(*event_range, close_all=True),
                              event_count.spy,
                              print_every(print_mod),

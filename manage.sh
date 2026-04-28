@@ -1,5 +1,14 @@
 #!/usrbin/env bash
 
+export PATH=~/miniconda_new/bin:$PATH
+# Ensure we use the correct conda
+unset CONDA_EXE
+unset CONDA_PREFIX
+unset CONDA_PYTHON_EXE
+
+source "$HOME/miniconda_new/etc/profile.d/conda.sh"
+
+
 COMMAND=$1
 ARGUMENT=$2
 
@@ -73,7 +82,7 @@ function install_conda {
     fi
 }
 
-CONDA_ENV_TAG=2024-06-08
+CONDA_ENV_TAG=2026-03-05
 CONDA_ENV_NAME=IC-${PYTHON_VERSION}-${CONDA_ENV_TAG}
 
 function make_environment {

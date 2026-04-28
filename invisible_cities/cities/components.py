@@ -414,13 +414,15 @@ def get_run_number(h5in):
 
 
 def get_pmt_wfs(h5in, wf_type):
-    if   wf_type is WfType.rwf : return h5in.root.RD.pmtrwf
-    elif wf_type is WfType.mcrd: return h5in.root.   pmtrd
+    if   wf_type is WfType.rwf : return h5in.root.RD.pmtrwf if "pmtrwf" in h5in.root.RD else None
+    elif wf_type is WfType.mcrd: return h5in.root.   pmtrd   if "pmtrd"   in h5in.root else None
+    elif wf_type is WfType.fiber: return None  # Fiber detector has no PMT waveforms
     else                       : raise  TypeError(f"Invalid WfType: {type(wf_type)}")
 
 def get_sipm_wfs(h5in, wf_type):
     if   wf_type is WfType.rwf : return h5in.root.RD.sipmrwf
     elif wf_type is WfType.mcrd: return h5in.root.   sipmrd
+    elif wf_type is WfType.fiber: return h5in.root.RD.sipmrwf
     else                       : raise  TypeError(f"Invalid WfType: {type(wf_type)}")
 
 
@@ -540,9 +542,17 @@ def wf_from_files(paths, wf_type):
             except tb.exceptions.NoSuchNodeError:
                 continue
 
-            check_lengths(pmt_wfs, sipm_wfs, event_info, trg_type, trg_chann)
+            # Only check lengths of non-None waveforms
+            wfs_to_check = [w for w in [pmt_wfs, sipm_wfs, event_info, trg_type, trg_chann] if w is not None]
+            check_lengths(*wfs_to_check)
 
-            for pmt, sipm, evtinfo, trtype, trchann in zip(pmt_wfs, sipm_wfs, event_info, trg_type, trg_chann):
+            # Build iterator - if pmt_wfs is None, use repeat(None) to match sipm_wfs length
+            if pmt_wfs is not None:
+                pmt_iter = pmt_wfs
+            else:
+                pmt_iter = repeat(None)
+            
+            for pmt, sipm, evtinfo, trtype, trchann in zip(pmt_iter, sipm_wfs, event_info, trg_type, trg_chann):
                 event_number, timestamp         = evtinfo.fetch_all_fields()
                 if trtype  is not None: trtype  = trtype .fetch_all_fields()[0]
 
@@ -698,10 +708,16 @@ def dhits_from_files(paths: List[str]) -> Iterator[Dict[str,Union[HitCollection,
 
 def sensor_data(path, wf_type):
     with tb.open_file(path, "r") as h5in:
-        if   wf_type is WfType.rwf :   (pmt_wfs, sipm_wfs) = (h5in.root.RD .pmtrwf,   h5in.root.RD .sipmrwf)
-        elif wf_type is WfType.mcrd:   (pmt_wfs, sipm_wfs) = (h5in.root.    pmtrd ,   h5in.root.    sipmrd )
-        else                       :   raise TypeError(f"Invalid WfType: {type(wf_type)}")
-        _, NPMT ,  PMTWL =  pmt_wfs.shape
+        pmt_wfs  = get_pmt_wfs(h5in, wf_type)
+        sipm_wfs = get_sipm_wfs(h5in, wf_type)
+        
+        # Handle cases where PMT waveforms don't exist (e.g., new fiber detector)
+        if pmt_wfs is None:
+            NPMT = 0
+            PMTWL = 0
+        else:
+            _, NPMT, PMTWL = pmt_wfs.shape
+        
         _, NSIPM, SIPMWL = sipm_wfs.shape
         return SensorData(NPMT=NPMT, PMTWL=PMTWL, NSIPM=NSIPM, SIPMWL=SIPMWL)
 
@@ -1564,3 +1580,34 @@ def hits_corrector( filename   : str
 
 def identity(x : Any) -> Any:
     return x
+
+def detect_wf_type(path):
+    """
+    Detect the waveform type based on the data structure in the HDF5 file.
+    
+    Returns:
+        WfType.rwf - if file contains /RD/pmtrwf and /RD/sipmrwf
+        WfType.fiber - if file contains /RD/sipmrwf but no /RD/pmtrwf
+        WfType.mcrd - if file contains /pmtrd and /sipmrd
+    
+    Raises:
+        ValueError - if file structure doesn't match any known format
+    """
+    with tb.open_file(path, "r") as h5in:
+        # Check for MC format (mcrd)
+        if hasattr(h5in.root, 'pmtrd') and hasattr(h5in.root, 'sipmrd'):
+            return WfType.mcrd
+        
+        # Check for raw data format (rwf or fiber)
+        if hasattr(h5in.root, 'RD'):
+            has_pmtrwf = "pmtrwf" in h5in.root.RD
+            has_sipmrwf = "sipmrwf" in h5in.root.RD
+            
+            if has_sipmrwf:
+                # If PMT waveforms don't exist, it's a fiber detector
+                if not has_pmtrwf:
+                    return WfType.fiber
+                else:
+                    return WfType.rwf
+        
+        raise ValueError(f"Unable to determine waveform type from file: {path}")

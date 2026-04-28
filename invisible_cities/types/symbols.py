@@ -132,6 +132,7 @@ class XYReco(AutoNameEnumBase):
 class WfType(AutoNameEnumBase):
     rwf  = auto()
     mcrd = auto()
+    fiber = auto()
 
 
 ALL_SYMBOLS = {}
