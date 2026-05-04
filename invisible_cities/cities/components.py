@@ -612,7 +612,7 @@ def wf_from_files(paths, wf_type):
                            trigger_type=trtype, trigger_channels=trchann)
 
 
-def wf_from_files_irene_dual_gain(paths, wf_type):
+def wf_from_files_fibers_dual_gain(paths, wf_type):
 
     for path in paths:
         with tb.open_file(path, "r") as h5in:
@@ -839,6 +839,34 @@ def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
 
     return build_pmap
 
+
+def build_pmap_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
+                         s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
+                         s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2):
+    s1_params = dict(time        = minmax(min = s1_tmin,
+                                          max = s1_tmax),
+                    length       = minmax(min = s1_lmin,
+                                          max = s1_lmax),
+                    stride       = s1_stride,
+                    rebin_stride = s1_rebin_stride)
+
+    s2_params = dict(time        = minmax(min = s2_tmin,
+                                          max = s2_tmax),
+                    length       = minmax(min = s2_lmin,
+                                          max = s2_lmax),
+                    stride       = s2_stride,
+                    rebin_stride = s2_rebin_stride)
+
+    datafiber = load_db.DataFiber(detector_db, run_number)
+    fiber_ids = datafiber.SensorID[datafiber.Active.astype(bool)].values
+
+    def build_pmap(cbswf_hg, cbswf_lg, s1_indx, s2_indx, sipmzs): # -> PMap
+        return pkf.get_pmap_dual_gain(cbswf_hg, cbswf_lg, s1_indx, s2_indx, sipmzs,
+                                      s1_params, s2_params, thr_sipm_s2, fiber_ids,
+                                      pmt_samp_wid, sipm_samp_wid)
+
+    return build_pmap
+
 def baseline_subtractor(n_baseline):
     def subtract_baseline(rwf):
         return -csf.subtract_baseline_n(rwf, n_baseline)
@@ -849,12 +877,15 @@ def calibrate_fibers_lg(dbfile, run_number, n_maw, thr_maw):
     def calibrate(cwf):
         # Conversion of adc_to_pes equal to 1 for all channels
         adc_to_pes = np.ones(cwf.shape[0])
-        return csf.calibrate_pmts(cwf,
-                                  adc_to_pes = adc_to_pes,
-                                  n_maw      = n_maw,
-                                  thr_maw    = thr_maw)
+        return csf.calibrate_fibers_lg(cwf, adc_to_pes=adc_to_pes)
     return calibrate
 
+def calibrate_fibers_hg(dbfile, run_number, n_maw, thr_maw):
+    def calibrate(cwf):
+        # Conversion of adc_to_pes equal to 1 for all channels
+        adc_to_pes = np.ones(cwf.shape[0])
+        return csf.calibrate_fibers_hg(cwf, adc_to_pes=adc_to_pes)
+    return calibrate
 
 def calibrate_pmts(dbfile, run_number, n_maw, thr_maw):
     DataPMT    = load_db.DataPMT(dbfile, run_number = run_number)
@@ -1322,6 +1353,54 @@ def compute_and_write_pmaps(detector_db, run_number, pmt_samp_wid, sipm_samp_wid
                                          s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
                                          s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2),
                               args = ("cbsfiber_lg", "s1_indices", "s2_indices", "sipm"),
+                              out  = "pmap")
+
+    # Filter events with zero peaks
+    pmaps_pass      = fl.map(check_empty_pmap, args = "pmap", out = "pmaps_pass")
+    empty_pmaps     = fl.count_filter(bool, args = "pmaps_pass")
+
+    # Define writers...
+    write_pmap_         = pmap_writer        (h5out,              )
+    write_indx_filter_  = event_filter_writer(h5out, "s12_indices")
+    write_pmap_filter_  = event_filter_writer(h5out, "empty_pmap" )
+
+    # ... and make them sinks
+    write_pmap         = sink(write_pmap_        , args=(        "pmap", "event_number"))
+    write_indx_filter  = sink(write_indx_filter_ , args=("event_number", "indices_pass"))
+    write_pmap_filter  = sink(write_pmap_filter_ , args=("event_number",   "pmaps_pass"))
+
+    fn_list = (indices_pass,
+               fl.branch(write_indx_filter),
+               empty_indices.filter,
+               sipm_rwf_to_cal,
+               compute_pmap,
+               pmaps_pass,
+               fl.branch(write_pmap_filter),
+               empty_pmaps.filter,
+               fl.branch(write_pmap))
+
+    # Filter out simp_rwf_to_cal if it is not set
+    compute_pmaps = pipe(*filter(None, fn_list))
+
+    return compute_pmaps, empty_indices, empty_pmaps
+
+
+def compute_and_write_pmaps_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
+                  s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
+                  s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2,
+                  h5out, sipm_rwf_to_cal=None):
+
+    # Filter events without signal over threshold
+    indices_pass    = fl.map(check_nonempty_indices,
+                             args = ("s1_indices", "s2_indices"),
+                             out = "indices_pass")
+    empty_indices   = fl.count_filter(bool, args = "indices_pass")
+
+    # Build the PMap
+    compute_pmap     = fl.map(build_pmap_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
+                                                   s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
+                                                   s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2),
+                              args = ("cbsfiber_hg", "cbsfiber_lg", "s1_indices", "s2_indices", "sipm"),
                               out  = "pmap")
 
     # Filter events with zero peaks

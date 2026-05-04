@@ -155,6 +155,20 @@ def get_pmap(ccwf, s1_indx, s2_indx, sipm_zs_wf,
                            **s2_params))
 
 
+def get_pmap_dual_gain(cbswf_hg, cbswf_lg, s1_indx, s2_indx, sipm_zs_wf,
+                       s1_params, s2_params, thr_sipm_s2, pmt_ids,
+                       pmt_samp_wid, sipm_samp_wid):
+    return PMap(find_peaks(cbswf_hg, s1_indx, Pk=S1, pmt_ids=pmt_ids,
+                           pmt_samp_wid=pmt_samp_wid,
+                           **s1_params),
+                find_peaks(cbswf_lg, s2_indx, Pk=S2, pmt_ids=pmt_ids,
+                           sipm_wfs      = sipm_zs_wf,
+                           thr_sipm_s2   = thr_sipm_s2,
+                           pmt_samp_wid  = pmt_samp_wid,
+                           sipm_samp_wid = sipm_samp_wid,
+                           **s2_params))
+
+
 def rebin_times_and_waveforms(times, widths, waveforms,
                               rebin_stride=2, slices=None):
     if rebin_stride < 2: return times, widths, waveforms

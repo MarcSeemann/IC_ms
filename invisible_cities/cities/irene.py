@@ -37,14 +37,15 @@ from .  components import collect
 from .  components import copy_mc_info
 from .  components import baseline_subtractor
 from .  components import calibrate_fibers_lg
+from .  components import calibrate_fibers_hg
 from .  components import calibrate_pmts
 from .  components import calibrate_sipms
 from .  components import zero_suppress_wfs_hg
 from .  components import zero_suppress_wfs_lg
-from .  components import wf_from_files_irene_dual_gain
+from .  components import wf_from_files_fibers_dual_gain
 from .  components import get_number_of_active_fibers
 from .  components import get_number_of_active_pmts
-from .  components import compute_and_write_pmaps
+from .  components import compute_and_write_pmaps_dual_gain
 from .  components import get_actual_sipm_thr
 
 
@@ -89,21 +90,21 @@ def irene( files_in        : OneOrManyFiles
     # Corrected WaveForm to Calibrated Corrected WaveForm
     bswf_lg_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number, n_maw, thr_maw),
                               args = "bsfiber_lg",
-                              out  = ("cbsfiber_lg", "cbsfiber_lg_maw", "bsfiber_lg_sum", "bsfiber_lg_sum_maw"))
+                              out  = ("cbsfiber_lg", "cbsfiber_lg_sum"))
 
     # Corrected WaveForm to Calibrated Corrected WaveForm
-    bswf_hg_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number, n_maw, thr_maw),
+    bswf_hg_to_cbswf      = fl.map(calibrate_fibers_hg(detector_db, run_number, n_maw, thr_maw),
                               args = "bsfiber_hg",
-                              out  = ("cbsfiber_hg", "cbsfiber_hg_maw", "bsfiber_hg_sum", "bsfiber_hg_sum_maw"))
+                              out  = ("cbsfiber_hg", "cbsfiber_hg_sum"))
 
     # Find where waveform is above threshold
     fiber_lg_zero_suppress    = fl.map(zero_suppress_wfs_lg(thr_csum_s2),
-                              args = "bsfiber_lg_sum",
+                              args = "cbsfiber_lg_sum",
                               out  = ("s2_indices", "s2_energies"))
 
     # Find where waveform is above threshold
     fiber_hg_zero_suppress    = fl.map(zero_suppress_wfs_hg(thr_csum_s1),
-                              args = "bsfiber_hg_sum_maw",
+                              args = "cbsfiber_hg_sum",
                               out  = "s1_indices")
 
     # Remove baseline and calibrate SiPMs
@@ -128,14 +129,14 @@ def irene( files_in        : OneOrManyFiles
         write_trigger_info = sink(write_trigger_info_, args=( "trigger_type", "trigger_channels"                ))
 
 
-        compute_pmaps, empty_indices, empty_pmaps = compute_and_write_pmaps(
+        compute_pmaps, empty_indices, empty_pmaps = compute_and_write_pmaps_dual_gain(
                                          detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                                          s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
                                          s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin,
                                          thr_sipm_s2,
                                          h5out, sipm_rwf_to_cal)
 
-        result = push(source = wf_from_files_irene_dual_gain(files_in, WfType.rwf),
+        result = push(source = wf_from_files_fibers_dual_gain(files_in, WfType.rwf),
                       pipe   = pipe(fl.slice(*event_range, close_all=True),
                                     print_every(print_mod),
                                     event_count_in.spy,

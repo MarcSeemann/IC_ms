@@ -133,6 +133,24 @@ def calibrate_pmts(cwfs, adc_to_pes, n_maw=100, thr_maw=3):
     return ccwfs, ccwfs_maw, cwf_sum, cwf_sum_maw
 
 
+def calibrate_fibers_lg(cwfs, adc_to_pes):
+    """
+    Calibrate LG fiber waveforms from ADC to pes without MAW processing.
+    """
+    ccwfs   = calibrate_wfs(cwfs, adc_to_pes)
+    cwf_sum = np.sum(ccwfs, axis=0)
+    return ccwfs, cwf_sum
+
+
+def calibrate_fibers_hg(cwfs, adc_to_pes):
+    """
+    Calibrate HG fiber waveforms from ADC to pes without MAW processing.
+    """
+    ccwfs   = calibrate_wfs(cwfs, adc_to_pes)
+    cwf_sum = np.sum(ccwfs, axis=0)
+    return ccwfs, cwf_sum
+
+
 def pmt_subtract_maw(cwfs, n_maw=100):
     """
     Subtract a MAW from the input waveforms.
