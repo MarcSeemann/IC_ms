@@ -104,6 +104,15 @@ def calibrate_wfs(wfs, adc_to_pes):
     return np.divide(wfs, adc_to_pes, out=out, where=ok)
 
 
+def calibrate_wfs_with_amp(wfs, adc_to_pes, amplification):
+    """
+    Convert waveforms in adc to pes including a per-sensor
+    amplification factor.
+    """
+    amplification = to_col_vector(amplification)
+    return calibrate_wfs(wfs * amplification, adc_to_pes)
+
+
 def subtract_baseline_and_calibrate(sipm_wfs, adc_to_pes, *, bls_mode=BlsMode.mean):
     bls = subtract_baseline(sipm_wfs, bls_mode=bls_mode)
     return calibrate_wfs(bls, adc_to_pes)
@@ -133,11 +142,14 @@ def calibrate_pmts(cwfs, adc_to_pes, n_maw=100, thr_maw=3):
     return ccwfs, ccwfs_maw, cwf_sum, cwf_sum_maw
 
 
-def calibrate_fibers_lg(cwfs, adc_to_pes):
+def calibrate_fibers_lg(cwfs, adc_to_pes, amplification=None):
     """
     Calibrate LG fiber waveforms from ADC to pes without MAW processing.
     """
-    ccwfs   = calibrate_wfs(cwfs, adc_to_pes)
+    if amplification is None:
+        amplification = np.ones_like(adc_to_pes)
+
+    ccwfs   = calibrate_wfs_with_amp(cwfs, adc_to_pes, amplification)
     cwf_sum = np.sum(ccwfs, axis=0)
     return ccwfs, cwf_sum
 

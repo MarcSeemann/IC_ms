@@ -358,6 +358,7 @@ def s1s_from_df(s1df, s1pmtdf):
 def s2s_from_df(s2df, s2pmtdf, sidf):
     s2s = []
     peak_numbers = set(s2df.peak)
+
     for peak_number in peak_numbers:
         (times,
          widths,

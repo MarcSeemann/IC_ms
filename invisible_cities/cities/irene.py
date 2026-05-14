@@ -32,6 +32,7 @@ from .. dataflow.dataflow   import pipe
 from .. dataflow.dataflow   import sink
 
 from .  components import city
+from .  components import fourier_filter
 from .  components import print_every
 from .  components import collect
 from .  components import copy_mc_info
@@ -71,6 +72,8 @@ def irene( files_in        : OneOrManyFiles
          , s2_rebin_stride : int  , s2_stride    : int
          , thr_csum_s2     : float, thr_sipm_s2  : float
          , pmt_samp_wid    : float, sipm_samp_wid: float
+         , fiber_samp_wid  : float
+         , fiber_cutoff_freq_MHz : float
          ):
 
     sipm_thr = get_actual_sipm_thr(thr_sipm_type, thr_sipm, detector_db, run_number)
@@ -87,14 +90,23 @@ def irene( files_in        : OneOrManyFiles
                               args = "fiber_hg",
                               out  = "bsfiber_hg")
 
-    # Corrected WaveForm to Calibrated Corrected WaveForm
-    bswf_lg_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number, n_maw, thr_maw),
+    # Fourier low-pass filter at 3 MHz on baseline-subtracted fiber waveforms
+    bsfiber_lg_fft_filter = fl.map(fourier_filter(fiber_samp_wid, fiber_cutoff_freq_MHz),
                               args = "bsfiber_lg",
+                              out  = "bsffiber_lg")
+
+    bsfiber_hg_fft_filter = fl.map(fourier_filter(fiber_samp_wid, fiber_cutoff_freq_MHz),
+                              args = "bsfiber_hg",
+                              out  = "bsffiber_hg")
+
+    # Filtered WaveForm to Calibrated Corrected WaveForm
+    bswf_lg_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number),
+                              args = "bsffiber_lg",
                               out  = ("cbsfiber_lg", "cbsfiber_lg_sum"))
 
-    # Corrected WaveForm to Calibrated Corrected WaveForm
-    bswf_hg_to_cbswf      = fl.map(calibrate_fibers_hg(detector_db, run_number, n_maw, thr_maw),
-                              args = "bsfiber_hg",
+    # Filtered WaveForm to Calibrated Corrected WaveForm
+    bswf_hg_to_cbswf      = fl.map(calibrate_fibers_hg(detector_db, run_number),
+                              args = "bsffiber_hg",
                               out  = ("cbsfiber_hg", "cbsfiber_hg_sum"))
 
     # Find where waveform is above threshold
@@ -120,9 +132,8 @@ def irene( files_in        : OneOrManyFiles
 
         # Define writers...
         write_event_info_   = run_and_event_writer(h5out)
-        #write_trigger_info_ = trigger_writer      (h5out, get_number_of_active_fibers(detector_db, run_number) + get_number_of_active_pmts(detector_db, run_number))
-        write_trigger_info_ = trigger_writer      (h5out, 48) #TODO: fix it at data level building a table of length nfibers + npmts that can be used as trigger
-
+        write_trigger_info_ = trigger_writer      (h5out, get_number_of_active_fibers(detector_db, run_number))
+       
         # ... and make them sinks
 
         write_event_info   = sink(write_event_info_  , args=(   "run_number",     "event_number", "timestamp"   ))
@@ -142,6 +153,8 @@ def irene( files_in        : OneOrManyFiles
                                     event_count_in.spy,
                                     fiber_lg_rwf_to_bswf,
                                     fiber_hg_rwf_to_bswf,
+                                    bsfiber_lg_fft_filter,
+                                    bsfiber_hg_fft_filter,
                                     bswf_lg_to_cbswf,
                                     bswf_hg_to_cbswf,
                                     fiber_lg_zero_suppress,

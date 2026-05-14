@@ -501,6 +501,10 @@ def get_number_of_active_fibers(detector_db, run_number):
     datafiber = load_db.DataFiber(detector_db, run_number)
     return np.count_nonzero(datafiber.Active.values.astype(bool))
 
+def get_number_of_active_sipms(detector_db, run_number):
+    datasipm = load_db.DataSiPM(detector_db, run_number)
+    return np.count_nonzero(datasipm.Active.values.astype(bool))
+
 def check_nonempty_indices(s1_indices, s2_indices):
     return s1_indices.size and s2_indices.size
 
@@ -871,20 +875,52 @@ def baseline_subtractor(n_baseline):
     def subtract_baseline(rwf):
         return -csf.subtract_baseline_n(rwf, n_baseline)
     return subtract_baseline
+
+
+def fourier_filter(samp_wid, cutoff_freq_MHz):
+    """
+    Returns a function that applies a low-pass filter to waveforms via FFT.
+    Frequency components above cutoff_freq_MHz are zeroed out.
+
+    Parameters
+    ----------
+    samp_wid : float
+        Sampling width in IC natural units (ns).
+    cutoff_freq_MHz : float
+        Cut-off frequency in MHz.
+    """
+    # In IC units: 1 unit = 25 ns  ->  1 MHz = 1e-3 (ns)^-1 = 25e-3 (IC unit)^-1
+    # rfftfreq(n, d=samp_wid) returns frequencies in (ns)^-1 directly
+    cutoff = cutoff_freq_MHz * 1e-3  # in (ns)^-1
+
+    def filter_wfs(wfs):
+        n     = wfs.shape[1]
+        freqs = np.fft.rfftfreq(n, d=samp_wid)   # in (ns)^-1
+        fwfs  = np.fft.rfft(wfs, axis=1)
+        fwfs[:, freqs > cutoff] = 0
+        return np.fft.irfft(fwfs, n=n, axis=1)
+    return filter_wfs
     
 
-def calibrate_fibers_lg(dbfile, run_number, n_maw, thr_maw):
-    def calibrate(cwf):
-        # Conversion of adc_to_pes equal to 1 for all channels
-        adc_to_pes = np.ones(cwf.shape[0])
-        return csf.calibrate_fibers_lg(cwf, adc_to_pes=adc_to_pes)
+def calibrate_fibers_lg(dbfile, run_number):
+    datafiber     = load_db.DataFiber(dbfile, run_number=run_number)
+    adc_to_pes    = np.abs(datafiber.adc_to_pes.values)
+    amplification = np.abs(datafiber.amplification.values)
+
+    def calibrate(bswf):
+        return csf.calibrate_fibers_lg(bswf,
+                                       adc_to_pes=adc_to_pes,
+                                       amplification=amplification)
     return calibrate
 
-def calibrate_fibers_hg(dbfile, run_number, n_maw, thr_maw):
-    def calibrate(cwf):
-        # Conversion of adc_to_pes equal to 1 for all channels
-        adc_to_pes = np.ones(cwf.shape[0])
-        return csf.calibrate_fibers_hg(cwf, adc_to_pes=adc_to_pes)
+def calibrate_fibers_hg(dbfile, run_number):
+    # Conversion of adc_to_pes equal to 1 for all channels
+    DataFiber    = load_db.DataFiber(dbfile, run_number = run_number)
+    adc_to_pes = np.abs(DataFiber.adc_to_pes.values)
+    adc_to_pes = adc_to_pes[adc_to_pes > 0]
+    
+    def calibrate(bswf):
+        return csf.calibrate_fibers_hg(bswf, adc_to_pes=adc_to_pes)
     return calibrate
 
 def calibrate_pmts(dbfile, run_number, n_maw, thr_maw):
@@ -892,8 +928,8 @@ def calibrate_pmts(dbfile, run_number, n_maw, thr_maw):
     adc_to_pes = np.abs(DataPMT.adc_to_pes.values)
     adc_to_pes = adc_to_pes[adc_to_pes > 0]
 
-    def calibrate_pmts(cwf):# -> CCwfs:
-        return csf.calibrate_pmts(cwf,
+    def calibrate_pmts(bswf):# -> Cbswfs:
+        return csf.calibrate_pmts(bswf,
                                   adc_to_pes = adc_to_pes,
                                   n_maw      = n_maw,
                                   thr_maw    = thr_maw)
@@ -934,16 +970,16 @@ def zero_suppress_wfs(thr_csum_s1, thr_csum_s2):
 
 
 def zero_suppress_wfs_hg(thr_csum_s1):
-    def ccwf_to_s1_indices(ccwf_sum_maw):
-        return pkf.indices_and_wf_above_threshold(ccwf_sum_maw, thr_csum_s1).indices
-    return ccwf_to_s1_indices
+    def cbswf_to_s1_indices(cbswf_sum):
+        return pkf.indices_and_wf_above_threshold(cbswf_sum, thr_csum_s1).indices
+    return cbswf_to_s1_indices
 
 
 def zero_suppress_wfs_lg(thr_csum_s2):
-    def ccwf_to_s2_indices_and_energies(ccwf_sum):
-        zs = pkf.indices_and_wf_above_threshold(ccwf_sum, thr_csum_s2)
+    def cbswf_to_s2_indices_and_energies(cbswf_sum):
+        zs = pkf.indices_and_wf_above_threshold(cbswf_sum, thr_csum_s2)
         return zs.indices, zs.energies
-    return ccwf_to_s2_indices_and_energies
+    return cbswf_to_s2_indices_and_energies
 
 
 def compute_pe_resolution(rms, adc_to_pes):
@@ -1856,11 +1892,11 @@ def hits_thresholder(threshold_charge : float, same_peak : bool ) -> Callable:
 
 
 @check_annotations
-def hits_corrector( filename     : str
-                  , apply_temp   : bool
-                  , norm_strat   : NormStrategy
-                  , norm_options : Optional[dict] = dict()
-                  , apply_z      : Optional[bool] = False
+def hits_corrector(filename        : str
+                  , apply_temp      : bool
+                  , norm_strat      : NormStrategy
+                  , norm_options    : Optional[dict] = dict()
+                  , apply_z         : Optional[bool] = False
                   ) -> Callable:
     """
     Applies energy correction map and converts drift time to z.
