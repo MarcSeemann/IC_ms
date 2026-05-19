@@ -133,7 +133,8 @@ class _SensorResponses:
     def __init__(self, ids, wfs):
         self._check_valid_input(ids, wfs)
 
-        self.ids              = np.array(ids, copy=False, ndmin=1)
+        # Keep ids index-safe even for empty inputs (np.array([]) defaults to float).
+        self.ids              = np.array(ids, copy=False, ndmin=1, dtype=np.int64)
         self.all_waveforms    = np.array(wfs, copy=False, ndmin=2)
         self.sum_over_sensors = np.sum(self.all_waveforms, axis=0)
         self.sum_over_times   = np.sum(self.all_waveforms, axis=1)

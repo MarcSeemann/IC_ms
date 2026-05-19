@@ -102,21 +102,21 @@ def irene( files_in        : OneOrManyFiles
     # Filtered WaveForm to Calibrated Corrected WaveForm
     bswf_lg_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number),
                               args = "bsffiber_lg",
-                              out  = ("cbsfiber_lg", "cbsfiber_lg_sum"))
+                              out  = ("cbsfiber_lg_maw", "cbsfiber_lg_sum_maw"))
 
     # Filtered WaveForm to Calibrated Corrected WaveForm
     bswf_hg_to_cbswf      = fl.map(calibrate_fibers_hg(detector_db, run_number),
                               args = "bsffiber_hg",
-                              out  = ("cbsfiber_hg", "cbsfiber_hg_sum"))
+                              out  = ("cbsfiber_hg_maw", "cbsfiber_hg_sum_maw"))
 
     # Find where waveform is above threshold
     fiber_lg_zero_suppress    = fl.map(zero_suppress_wfs_lg(thr_csum_s2),
-                              args = "cbsfiber_lg_sum",
+                              args = "cbsfiber_lg_sum_maw",
                               out  = ("s2_indices", "s2_energies"))
 
     # Find where waveform is above threshold
     fiber_hg_zero_suppress    = fl.map(zero_suppress_wfs_hg(thr_csum_s1),
-                              args = "cbsfiber_hg_sum",
+                              args = "cbsfiber_hg_sum_maw",
                               out  = "s1_indices")
 
     # Remove baseline and calibrate SiPMs

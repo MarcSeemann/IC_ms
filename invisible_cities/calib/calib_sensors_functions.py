@@ -142,25 +142,29 @@ def calibrate_pmts(cwfs, adc_to_pes, n_maw=100, thr_maw=3):
     return ccwfs, ccwfs_maw, cwf_sum, cwf_sum_maw
 
 
-def calibrate_fibers_lg(cwfs, adc_to_pes, amplification=None):
+def calibrate_fibers_lg(cwfs, adc_to_pes, amplification=None, n_maw=100):
     """
-    Calibrate LG fiber waveforms from ADC to pes without MAW processing.
+    Calibrate LG fiber waveforms from ADC to pes and apply a MAW.
     """
     if amplification is None:
         amplification = np.ones_like(adc_to_pes)
 
-    ccwfs   = calibrate_wfs_with_amp(cwfs, adc_to_pes, amplification)
-    cwf_sum = np.sum(ccwfs, axis=0)
-    return ccwfs, cwf_sum
+    ccwfs    = calibrate_wfs_with_amp(cwfs, adc_to_pes, amplification)
+    window   = np.full(n_maw, 1 / n_maw)
+    ccwfs_maw = signal.lfilter(window, 1, ccwfs, axis=1)
+    cwf_sum  = np.sum(ccwfs_maw, axis=0)
+    return ccwfs_maw, cwf_sum
 
 
-def calibrate_fibers_hg(cwfs, adc_to_pes):
+def calibrate_fibers_hg(cwfs, adc_to_pes, n_maw=5):
     """
-    Calibrate HG fiber waveforms from ADC to pes without MAW processing.
+    Calibrate HG fiber waveforms from ADC to pes and apply a MAW.
     """
-    ccwfs   = calibrate_wfs(cwfs, adc_to_pes)
-    cwf_sum = np.sum(ccwfs, axis=0)
-    return ccwfs, cwf_sum
+    ccwfs     = calibrate_wfs(cwfs, adc_to_pes)
+    window    = np.full(n_maw, 1 / n_maw)
+    ccwfs_maw = signal.lfilter(window, 1, ccwfs, axis=1)
+    cwf_sum   = np.sum(ccwfs_maw, axis=0)
+    return ccwfs_maw, cwf_sum
 
 
 def pmt_subtract_maw(cwfs, n_maw=100):

@@ -1436,7 +1436,7 @@ def compute_and_write_pmaps_dual_gain(detector_db, run_number, pmt_samp_wid, sip
     compute_pmap     = fl.map(build_pmap_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                                                    s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
                                                    s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2),
-                              args = ("cbsfiber_hg", "cbsfiber_lg", "s1_indices", "s2_indices", "sipm"),
+                              args = ("cbsfiber_hg_maw", "cbsfiber_lg_maw", "s1_indices", "s2_indices", "sipm"),
                               out  = "pmap")
 
     # Filter events with zero peaks
