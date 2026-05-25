@@ -4,6 +4,7 @@ import tables as tb
 import pandas as pd
 
 from pytest import mark
+from pytest import importorskip
 
 from .. core.testing_utils   import assert_tables_equality
 from .. core.testing_utils   import ignore_warning
@@ -147,3 +148,20 @@ def test_sophronia_keeps_hitless_events(config_tmpdir, sophronia_config):
     with tb.open_file(path_out) as output_file:
         assert len(output_file.root.Run.events) == 1
         assert "RECO" not in output_file.root
+
+
+@ignore_warning.no_config_group
+def test_sophronia_writes_dbscan_labels(config_tmpdir, sophronia_config):
+    importorskip("sklearn")
+
+    path_out = os.path.join(config_tmpdir, 'test_sophronia_writes_dbscan_labels.h5')
+    config   = dict(**sophronia_config)
+    config.update(dict( file_out      = path_out
+                      , event_range   = 1
+                      , dbscan_params = dict(eps=np.sqrt(3), min_samples=4)))
+
+    sophronia(**config)
+
+    with tb.open_file(path_out) as output_file:
+        assert "RECO/Events" in output_file.root
+        assert "label" in output_file.root.RECO.Events.colnames

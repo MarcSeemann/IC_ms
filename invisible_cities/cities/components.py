@@ -1929,5 +1929,43 @@ def hits_corrector(filename        : str
     return correct
 
 
+def get_min_spacing(series: pd.Series) -> float:
+    unique_vals = np.sort(series.dropna().unique())
+    if len(unique_vals) < 2:
+        return 1.0
+
+    diffs = np.diff(unique_vals)
+    positive_diffs = diffs[diffs > 0]
+    if len(positive_diffs) == 0:
+        return 1.0
+
+    return float(np.min(positive_diffs))
+
+
+@check_annotations
+def dbscan_labeller(eps: float = np.sqrt(3), min_samples: int = 4) -> Callable:
+    try:
+        from sklearn.cluster import DBSCAN
+    except ImportError as err:
+        msg = "DBSCAN labeling requires scikit-learn. Install scikit-learn to use dbscan_params."
+        raise ImportError(msg) from err
+
+    def label_hits(hits: pd.DataFrame) -> pd.DataFrame:
+        if hits.empty:
+            return hits.assign(label=np.array([], dtype=np.int32))
+
+        dx = get_min_spacing(hits.X)
+        dy = get_min_spacing(hits.Y)
+        dz = get_min_spacing(hits.Z)
+
+        normalized_coords = np.column_stack((hits.X.values / dx,
+                                             hits.Y.values / dy,
+                                             hits.Z.values / dz))
+        labels = DBSCAN(eps=eps, min_samples=min_samples).fit_predict(normalized_coords)
+        return hits.assign(label=labels.astype(np.int32))
+
+    return label_hits
+
+
 def identity(x : Any) -> Any:
     return x
