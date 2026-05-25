@@ -902,7 +902,7 @@ def fourier_filter(samp_wid, cutoff_freq_MHz):
     return filter_wfs
     
 
-def calibrate_fibers_lg(dbfile, run_number):
+def calibrate_fibers_lg(dbfile, run_number, n_maw_s2):
     datafiber     = load_db.DataFiber(dbfile, run_number=run_number)
     adc_to_pes    = np.abs(datafiber.adc_to_pes.values)
     amplification = np.abs(datafiber.amplification.values)
@@ -910,17 +910,18 @@ def calibrate_fibers_lg(dbfile, run_number):
     def calibrate(bswf):
         return csf.calibrate_fibers_lg(bswf,
                                        adc_to_pes=adc_to_pes,
-                                       amplification=amplification)
+                                       amplification=amplification,
+                                       n_maw=n_maw_s2)
     return calibrate
 
-def calibrate_fibers_hg(dbfile, run_number):
+def calibrate_fibers_hg(dbfile, run_number, n_maw_s1):
     # Conversion of adc_to_pes equal to 1 for all channels
     DataFiber    = load_db.DataFiber(dbfile, run_number = run_number)
     adc_to_pes = np.abs(DataFiber.adc_to_pes.values)
     adc_to_pes = adc_to_pes[adc_to_pes > 0]
     
     def calibrate(bswf):
-        return csf.calibrate_fibers_hg(bswf, adc_to_pes=adc_to_pes)
+        return csf.calibrate_fibers_hg(bswf, adc_to_pes=adc_to_pes, n_maw=n_maw_s1)
     return calibrate
 
 def calibrate_pmts(dbfile, run_number, n_maw, thr_maw):

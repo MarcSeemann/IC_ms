@@ -59,7 +59,8 @@ def irene( files_in        : OneOrManyFiles
          , detector_db     : str
          , run_number      : int
          , n_baseline      : int
-         , n_maw           : int
+         , n_maw_s1        : int
+         , n_maw_s2        : int
          , thr_maw         : float
          , thr_sipm        : float
          , thr_sipm_type   : SiPMThreshold
@@ -100,12 +101,12 @@ def irene( files_in        : OneOrManyFiles
                               out  = "bsffiber_hg")
 
     # Filtered WaveForm to Calibrated Corrected WaveForm
-    bswf_lg_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number),
+    bswf_lg_to_cbswf      = fl.map(calibrate_fibers_lg(detector_db, run_number, n_maw_s2),
                               args = "bsffiber_lg",
                               out  = ("cbsfiber_lg_maw", "cbsfiber_lg_sum_maw"))
 
     # Filtered WaveForm to Calibrated Corrected WaveForm
-    bswf_hg_to_cbswf      = fl.map(calibrate_fibers_hg(detector_db, run_number),
+    bswf_hg_to_cbswf      = fl.map(calibrate_fibers_hg(detector_db, run_number, n_maw_s1),
                               args = "bsffiber_hg",
                               out  = ("cbsfiber_hg_maw", "cbsfiber_hg_sum_maw"))
 
