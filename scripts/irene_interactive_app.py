@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import glob
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from invisible_cities.core import system_of_units as units
 ROOT_DIR = Path(__file__).resolve().parents[1]
 os.environ.setdefault("ICTDIR", str(ROOT_DIR))
 DATA_DIR = ROOT_DIR / "data"
+SIPM_POSITIONS_CSV = ROOT_DIR / "scripts" / "hddemo_db_elecid_positions.csv"
 
 # Candidate-selection defaults aligned with irene.conf.
 S1_TMIN_US_DEFAULT, S1_TMAX_US_DEFAULT = 50.0, 250.0
@@ -237,8 +239,112 @@ def load_event(file_path: str, event_idx: int):
     with tb.open_file(file_path, "r") as h5in:
         fiber_hg = h5in.root.RD.fiberrwf_hg[event_idx]
         fiber_lg = h5in.root.RD.fiberrwf_lg[event_idx]
+        sipm_wf = h5in.root.RD.sipmrwf[event_idx]
+        sipm_sensors = h5in.root.Sensors.DataSiPM[:]
         event_no = int(h5in.root.Run.events[event_idx][0])
-    return fiber_hg, fiber_lg, event_no
+    return fiber_hg, fiber_lg, sipm_wf, sipm_sensors, event_no
+
+
+@st.cache_data(show_spinner=False)
+def load_sipm_positions(csv_path: str):
+    out = {}
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            elecid = int(row["ElecID"])
+            out[elecid] = (float(row["X"]), float(row["Y"]))
+    return out
+
+
+def get_s2_windows_us(pmap_evt, s2_selected, t_us, fiber_samp_wid_ns):
+    windows = []
+
+    if pmap_evt is not None and len(pmap_evt.s2s):
+        try:
+            for s2 in pmap_evt.s2s:
+                times = np.asarray(s2.times, dtype=float)
+                if len(times) == 0:
+                    continue
+                # PMAP times are in ns; convert to us.
+                t0_us = float(times[0]) * 1e-3
+                if len(times) > 1:
+                    dt_us = float(np.median(np.diff(times))) * 1e-3
+                else:
+                    dt_us = float(fiber_samp_wid_ns) * 1e-3
+                t1_us = float(times[-1]) * 1e-3 + dt_us
+                windows.append((t0_us, t1_us))
+            if windows:
+                return windows
+        except Exception:
+            pass
+
+    # Fallback to selected S2 candidate windows in fiber time.
+    for seg in s2_selected:
+        windows.append((float(t_us[seg[0]]), float(t_us[seg[-1]] + float(fiber_samp_wid_ns) * 1e-3)))
+    return windows
+
+
+def sipm_s2_charge_map_figure(sipm_wf_evt, sipm_sensors, positions_by_elecid, s2_windows_us, sipm_samp_wid_us):
+    if not s2_windows_us:
+        return None, 0
+
+    n_samples = sipm_wf_evt.shape[1]
+    t_sipm_us = np.arange(n_samples, dtype=float) * float(sipm_samp_wid_us)
+    mask = np.zeros_like(t_sipm_us, dtype=bool)
+    for t0, t1 in s2_windows_us:
+        mask |= (t_sipm_us >= float(t0)) & (t_sipm_us <= float(t1))
+    if not np.any(mask):
+        return None, 0
+
+    baseline_n = max(10, min(50, n_samples // 5))
+    baseline = np.median(sipm_wf_evt[:, :baseline_n], axis=1)
+    corrected = sipm_wf_evt - baseline[:, None]
+    corrected = np.where(corrected > 0, corrected, 0.0)
+    q = np.sum(corrected[:, mask], axis=1) * float(sipm_samp_wid_us)
+
+    x_vals, y_vals, q_vals, labels = [], [], [], []
+    for i in range(len(sipm_sensors)):
+        elecid = int(sipm_sensors[i]["channel"])
+        if elecid not in positions_by_elecid:
+            continue
+        x, y = positions_by_elecid[elecid]
+        x_vals.append(x)
+        y_vals.append(y)
+        q_vals.append(float(q[i]))
+        labels.append(elecid)
+
+    if not x_vals:
+        return None, 0
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=x_vals,
+            y=y_vals,
+            mode="markers",
+            marker=dict(
+                size=10,
+                color=q_vals,
+                colorscale="Turbo",
+                colorbar=dict(title="Integrated charge"),
+                line=dict(color="black", width=0.4),
+            ),
+            text=[f"ElecID {eid}<br>Q={qq:.2f}" for eid, qq in zip(labels, q_vals)],
+            hovertemplate="%{text}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="SiPM integrated charge in S2 valid window(s)",
+        xaxis_title="X",
+        yaxis_title="Y",
+        yaxis_scaleanchor="x",
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        height=520,
+        font=dict(color="black"),
+    )
+    return fig, len(x_vals)
 
 
 def overlay_plot(t_us, a, b, title, name_a, name_b, y_title):
@@ -429,7 +535,8 @@ def main():
     )
 
     try:
-        fiber_hg_raw, fiber_lg_raw, event_number = load_event(selected_file, event_idx)
+        fiber_hg_raw, fiber_lg_raw, sipm_wf_evt, sipm_sensors, event_number = load_event(selected_file, event_idx)
+        positions_by_elecid = load_sipm_positions(str(SIPM_POSITIONS_CSV))
 
         t_us = np.arange(n_samples) * float(fiber_samp_wid) * 1e-3
 
@@ -504,6 +611,15 @@ def main():
         else:
             stage_a_s1_md = build_stage_a_single_markdown("S1", s1_analyzed, n_in_pmap=None, pmap_error=pmap_error)
             stage_a_s2_md = build_stage_a_single_markdown("S2", s2_analyzed, n_in_pmap=None, pmap_error=pmap_error)
+
+        s2_windows_us = get_s2_windows_us(pmap_evt, s2_selected, t_us, float(fiber_samp_wid))
+        sipm_map_fig, sipm_mapped = sipm_s2_charge_map_figure(
+            sipm_wf_evt,
+            sipm_sensors,
+            positions_by_elecid,
+            s2_windows_us,
+            float(sipm_samp_wid_us),
+        )
 
     except Exception as exc:
         st.error("Pipeline execution failed with current settings.")
@@ -638,6 +754,13 @@ def main():
         with right:
             st.markdown("### S2 diagnostics")
             st.markdown(stage_a_s2_md)
+
+    st.subheader("SiPM S2 Charge Map")
+    if sipm_map_fig is None:
+        st.info("No S2 window available for SiPM integration with current settings.")
+    else:
+        st.caption(f"Mapped SiPM sensors: {sipm_mapped}")
+        st.plotly_chart(sipm_map_fig, use_container_width=True)
 
     with st.expander("Current configuration"):
         st.json(
