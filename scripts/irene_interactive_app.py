@@ -17,26 +17,43 @@ from invisible_cities.cities.components import calibrate_fibers_lg
 from invisible_cities.cities.components import zero_suppress_wfs_hg
 from invisible_cities.cities.components import zero_suppress_wfs_lg
 from invisible_cities.core import system_of_units as units
+from invisible_cities.core.configure import read_config_file
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 os.environ.setdefault("ICTDIR", str(ROOT_DIR))
 DATA_DIR = ROOT_DIR / "data"
 SIPM_POSITIONS_CSV = ROOT_DIR / "scripts" / "hddemo_db_elecid_positions.csv"
 
-# Candidate-selection defaults aligned with irene.conf.
-S1_TMIN_US_DEFAULT, S1_TMAX_US_DEFAULT = 50.0, 250.0
-S1_STRIDE_DEFAULT = 3
-S1_LMIN_DEFAULT, S1_LMAX_DEFAULT = 1, 100
-S1_REBIN_STRIDE_DEFAULT = 1
+# Candidate-selection defaults loaded from the Irene config file.
+CONFIG_FILE = ROOT_DIR / "invisible_cities" / "config" / "irene.conf"
+CFG = read_config_file(str(CONFIG_FILE)) if CONFIG_FILE.exists() else {}
 
-S2_TMIN_US_DEFAULT, S2_TMAX_US_DEFAULT = 248.0, 290.0
-S2_STRIDE_DEFAULT = 2
-S2_LMIN_DEFAULT, S2_LMAX_DEFAULT = 150, 100000
-S2_REBIN_STRIDE_DEFAULT = 40
+N_BASELINE_DEFAULT = int(CFG.get("n_baseline", 2800))
+N_MAW_S1_DEFAULT = int(CFG.get("n_maw_s1", 10))
+N_MAW_S2_DEFAULT = int(CFG.get("n_maw_s2", 1))
+S1_PADDING_DEFAULT = int(CFG.get("s1_pading", 10))
+FIBER_CUTOFF_MHZ_DEFAULT = float(CFG.get("fiber_cutoff_freq_MHz", 3.0))
+THR_CSUM_S1_DEFAULT = float(CFG.get("thr_csum_s1", 100.0))
+THR_CSUM_S2_DEFAULT = float(CFG.get("thr_csum_s2", 50.0))
 
-THR_SIPM_S2_DEFAULT = 1.5
-PMT_SAMP_WID_NS_DEFAULT = 25.0
-SIPM_SAMP_WID_US_DEFAULT = 1.0
+S1_TMIN_US_DEFAULT = float(CFG.get("s1_tmin", 50 * units.mus)) / units.mus
+S1_TMAX_US_DEFAULT = float(CFG.get("s1_tmax", 250 * units.mus)) / units.mus
+S1_STRIDE_DEFAULT = int(CFG.get("s1_stride", 3))
+S1_LMIN_DEFAULT = int(CFG.get("s1_lmin", 20))
+S1_LMAX_DEFAULT = int(CFG.get("s1_lmax", 100))
+S1_REBIN_STRIDE_DEFAULT = int(CFG.get("s1_rebin_stride", 1))
+
+S2_TMIN_US_DEFAULT = float(CFG.get("s2_tmin", 245 * units.mus)) / units.mus
+S2_TMAX_US_DEFAULT = float(CFG.get("s2_tmax", 290 * units.mus)) / units.mus
+S2_STRIDE_DEFAULT = int(CFG.get("s2_stride", 2))
+S2_LMIN_DEFAULT = int(CFG.get("s2_lmin", 150))
+S2_LMAX_DEFAULT = int(CFG.get("s2_lmax", 100000))
+S2_REBIN_STRIDE_DEFAULT = int(CFG.get("s2_rebin_stride", 40))
+
+THR_SIPM_S2_DEFAULT = float(CFG.get("thr_sipm_s2", 1.5))
+PMT_SAMP_WID_NS_DEFAULT = float(CFG.get("pmt_samp_wid", 25 * units.ns)) / units.ns
+SIPM_SAMP_WID_US_DEFAULT = float(CFG.get("sipm_samp_wid", 1 * units.mus)) / units.mus
+FIBER_SAMP_WID_NS_DEFAULT = float(CFG.get("fiber_samp_wid", 25 * units.ns)) / units.ns
 
 
 def parse_run_number(path: str) -> int:
@@ -94,6 +111,18 @@ def split_with_stride(indices: np.ndarray, stride: int):
         return []
     breaks = np.where(np.diff(indices) > stride)[0] + 1
     return np.split(indices, breaks)
+
+
+def padded_s1_regions(indices, stride, t_us, sample_width_ns, padding=10):
+    regions = []
+    for seg in split_with_stride(np.asarray(indices, dtype=int), stride):
+        if len(seg) == 0:
+            continue
+        start = max(0, int(seg[0]) - padding)
+        end = int(seg[-1]) + padding
+        regions.append((float(t_us[start]),
+                        float(t_us[end] + sample_width_ns * 1e-3)))
+    return regions
 
 
 def analyze_candidate(seg, t_us, sample_width_ns, tmin_us, tmax_us, lmin, lmax):
@@ -375,6 +404,7 @@ def threshold_plot(
     selected_color,
     rejected_color,
     allowed_window=None,
+    extra_regions=None,
 ):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=t_us, y=y, mode="lines", name="summed waveform", line=dict(width=1.2)))
@@ -389,6 +419,16 @@ def threshold_plot(
             opacity=0.12,
             line_width=0,
         )
+
+    if extra_regions:
+        for t0, t1 in extra_regions:
+            fig.add_vrect(
+                x0=float(t0),
+                x1=float(t1),
+                fillcolor="#f4a261",
+                opacity=0.22,
+                line_width=0,
+            )
 
     for i, seg in enumerate(selected):
         fig.add_vrect(
@@ -499,13 +539,13 @@ def main():
         detector_db = st.selectbox("Detector DB", ["hddemojb", "hddemo"], index=0)
 
         st.header("Parameters")
-        n_baseline = st.number_input("N_BASELINE", min_value=100, max_value=n_samples, value=2800, step=100)
-        n_maw_s1 = st.number_input("N_MAW_S1", min_value=1, max_value=5000, value=10, step=1)
-        n_maw_s2 = st.number_input("N_MAW_S2", min_value=1, max_value=5000, value=100, step=1)
-        fiber_samp_wid = st.number_input("FIBER_SAMP_WID (ns)", min_value=1.0, max_value=1000.0, value=25.0, step=1.0)
-        fiber_cutoff_mhz = st.number_input("FIBER_CUTOFF_FREQ_MHZ", min_value=0.1, max_value=100.0, value=3.0, step=0.1)
-        thr_csum_s1 = st.number_input("THR_CSUM_S1 (pes)", min_value=0.0, max_value=1e6, value=100.0, step=1.0)
-        thr_csum_s2 = st.number_input("THR_CSUM_S2 (pes)", min_value=0.0, max_value=1e6, value=60.0, step=1.0)
+        n_baseline = st.number_input("N_BASELINE", min_value=100, max_value=n_samples, value=N_BASELINE_DEFAULT, step=100)
+        n_maw_s1 = st.number_input("N_MAW_S1", min_value=1, max_value=5000, value=N_MAW_S1_DEFAULT, step=1)
+        n_maw_s2 = st.number_input("N_MAW_S2", min_value=1, max_value=5000, value=N_MAW_S2_DEFAULT, step=1)
+        fiber_samp_wid = st.number_input("FIBER_SAMP_WID (ns)", min_value=1.0, max_value=1000.0, value=FIBER_SAMP_WID_NS_DEFAULT, step=1.0)
+        fiber_cutoff_mhz = st.number_input("FIBER_CUTOFF_FREQ_MHZ", min_value=0.1, max_value=100.0, value=FIBER_CUTOFF_MHZ_DEFAULT, step=0.1)
+        thr_csum_s1 = st.number_input("THR_CSUM_S1 (pes)", min_value=0.0, max_value=1e6, value=THR_CSUM_S1_DEFAULT, step=1.0)
+        thr_csum_s2 = st.number_input("THR_CSUM_S2 (pes)", min_value=0.0, max_value=1e6, value=THR_CSUM_S2_DEFAULT, step=1.0)
 
         st.subheader("S1 selection")
         s1_tmin_us = st.number_input("s1_tmin (us)", min_value=0.0, max_value=1e6, value=S1_TMIN_US_DEFAULT, step=1.0)
@@ -600,6 +640,7 @@ def main():
                 float(s2_tmax_us) * units.mus,
                 float(s2_tmin_us) * units.mus,
                 float(thr_sipm_s2),
+                s1_pading=int(S1_PADDING_DEFAULT),
             )
             pmap_evt = pmap_builder(cbsfiber_hg_maw, cbsfiber_lg_maw, s1_indices, s2_indices, None)
         except Exception as e:
@@ -730,6 +771,7 @@ def main():
             use_container_width=True,
         )
     with col8:
+        padded_s1 = padded_s1_regions(s1_indices, int(s1_stride), t_us, float(fiber_samp_wid), padding=int(S1_PADDING_DEFAULT))
         st.plotly_chart(
             threshold_plot(
                 t_us,
@@ -742,6 +784,7 @@ def main():
                 "#1e8e5a",
                 "#c73e3e",
                 allowed_window=(float(s2_tmin_us), float(s2_tmax_us)),
+                extra_regions=padded_s1,
             ),
             use_container_width=True,
         )

@@ -846,7 +846,8 @@ def build_pmap(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
 
 def build_pmap_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                          s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
-                         s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2):
+                         s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin,
+                         thr_sipm_s2, s1_pading=0):
     s1_params = dict(time        = minmax(min = s1_tmin,
                                           max = s1_tmax),
                     length       = minmax(min = s1_lmin,
@@ -867,7 +868,8 @@ def build_pmap_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
     def build_pmap(cbswf_hg, cbswf_lg, s1_indx, s2_indx, sipmzs): # -> PMap
         return pkf.get_pmap_dual_gain(cbswf_hg, cbswf_lg, s1_indx, s2_indx, sipmzs,
                                       s1_params, s2_params, thr_sipm_s2, fiber_ids,
-                                      pmt_samp_wid, sipm_samp_wid)
+                                      pmt_samp_wid, sipm_samp_wid,
+                                      s1_waveform='lg', s1_pading=s1_pading)
 
     return build_pmap
 
@@ -1425,7 +1427,7 @@ def compute_and_write_pmaps(detector_db, run_number, pmt_samp_wid, sipm_samp_wid
 def compute_and_write_pmaps_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                   s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
                   s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2,
-                  h5out, sipm_rwf_to_cal=None):
+                  s1_pading, h5out, sipm_rwf_to_cal=None):
 
     # Filter events without signal over threshold
     indices_pass    = fl.map(check_nonempty_indices,
@@ -1436,7 +1438,8 @@ def compute_and_write_pmaps_dual_gain(detector_db, run_number, pmt_samp_wid, sip
     # Build the PMap
     compute_pmap     = fl.map(build_pmap_dual_gain(detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                                                    s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
-                                                   s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin, thr_sipm_s2),
+                                                   s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin,
+                                                   thr_sipm_s2, s1_pading),
                               args = ("cbsfiber_hg_maw", "cbsfiber_lg_maw", "s1_indices", "s2_indices", "sipm"),
                               out  = "pmap")
 

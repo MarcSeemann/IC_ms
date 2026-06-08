@@ -491,6 +491,69 @@ def test_find_peaks_s2_style(pmt_and_sipm_wfs_with_indices):
     assert_Peak_equality(peaks[0], expected_peak)
 
 
+def test_get_pmap_dual_gain_uses_low_gain_waveforms_for_s1():
+    times   = np.arange(5) * 25 * units.ns
+    widths  = np.full(5, 25 * units.ns)
+    cbswf_hg = np.array([[ 0.,  1.,  2.,  3.,  4.],
+                         [10., 11., 12., 13., 14.]])
+    cbswf_lg = np.array([[ 0., 10., 20., 30., 40.],
+                         [ 0.,  1.,  2.,  3.,  4.]])
+    s1_indx = np.array([1, 2, 3])
+    s2_indx = np.array([0])
+    pmt_ids = np.arange(cbswf_hg.shape[0])
+
+    s1_params = dict(time=minmax(times[0], times[-1]),
+                     length=minmax(3, 3),
+                     stride=1,
+                     rebin_stride=1)
+    s2_params = dict(time=minmax(times[0], times[-1]),
+                     length=minmax(1, 1),
+                     stride=1,
+                     rebin_stride=1)
+
+    pmap = pf.get_pmap_dual_gain(cbswf_hg, cbswf_lg,
+                                 s1_indx, s2_indx, np.zeros((0, 0)),
+                                 s1_params, s2_params,
+                                 thr_sipm_s2=0,
+                                 pmt_ids=pmt_ids,
+                                 pmt_samp_wid=25 * units.ns,
+                                 sipm_samp_wid=1 * units.mus,
+                                 s1_waveform='lg')
+
+    assert pmap.s1s[0].pmts.all_waveforms == approx(cbswf_lg[:, s1_indx])
+
+
+def test_get_pmap_dual_gain_adds_symmetric_padding_to_s1_indices():
+    times = np.arange(8) * 25 * units.ns
+    widths = np.full(8, 25 * units.ns)
+    cbswf_hg = np.zeros((1, 8))
+    cbswf_lg = np.zeros((1, 8))
+    s1_indx = np.array([4, 5])
+    s2_indx = np.array([0])
+    pmt_ids = np.arange(1)
+
+    s1_params = dict(time=minmax(times[0], times[-1]),
+                     length=minmax(6, 6),
+                     stride=1,
+                     rebin_stride=1)
+    s2_params = dict(time=minmax(times[0], times[-1]),
+                     length=minmax(1, 1),
+                     stride=1,
+                     rebin_stride=1)
+
+    pmap = pf.get_pmap_dual_gain(cbswf_hg, cbswf_lg,
+                                 s1_indx, s2_indx, np.zeros((0, 0)),
+                                 s1_params, s2_params,
+                                 thr_sipm_s2=0,
+                                 pmt_ids=pmt_ids,
+                                 pmt_samp_wid=25 * units.ns,
+                                 sipm_samp_wid=1 * units.mus,
+                                 s1_waveform='lg',
+                                 s1_pading=2)
+
+    assert np.array_equal(pmap.s1s[0].times, times[[2, 3, 4, 5, 6, 7]])
+
+
 def test_get_pmap(s1_and_s2_with_indices):
     (times, widths, pmt_wfs, sipm_wfs,
      s1_indx, s2_indx, sipm_indices,

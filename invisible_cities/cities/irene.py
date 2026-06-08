@@ -67,6 +67,7 @@ def irene( files_in        : OneOrManyFiles
          , s1_lmin         : int  , s1_lmax      : int
          , s1_tmin         : float, s1_tmax      : float
          , s1_rebin_stride : int  , s1_stride    : int
+         , s1_pading       : int
          , thr_csum_s1     : float
          , s2_lmin         : int  , s2_lmax      : int
          , s2_tmin         : float, s2_tmax      : float
@@ -145,7 +146,7 @@ def irene( files_in        : OneOrManyFiles
                                          detector_db, run_number, pmt_samp_wid, sipm_samp_wid,
                                          s1_lmax, s1_lmin, s1_rebin_stride, s1_stride, s1_tmax, s1_tmin,
                                          s2_lmax, s2_lmin, s2_rebin_stride, s2_stride, s2_tmax, s2_tmin,
-                                         thr_sipm_s2,
+                                         thr_sipm_s2, s1_pading,
                                          h5out, sipm_rwf_to_cal)
 
         result = push(source = wf_from_files_fibers_dual_gain(files_in, WfType.rwf),

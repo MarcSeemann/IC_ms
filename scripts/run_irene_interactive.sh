@@ -16,6 +16,8 @@ if ! command -v streamlit >/dev/null 2>&1; then
 fi
 
 echo "Starting interactive app on http://127.0.0.1:$PORT"
-exec streamlit run "$ROOT_DIR/scripts/irene_interactive_app.py" \
+cd "$ROOT_DIR"
+
+exec streamlit run "scripts/irene_interactive_app.py" \
   --server.port "$PORT" \
   --server.address 127.0.0.1
