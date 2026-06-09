@@ -36,13 +36,15 @@ def split_in_peaks(indices, stride):
     return np.split(indices, where + 1)
 
 
-def pad_indices(indices, padding):
+def pad_indices(indices, padding, n_samples=None):
     indices = np.asarray(indices, dtype=int)
     if padding <= 0 or indices.size == 0:
         return indices
 
     start = max(0, indices[0] - padding)
     stop  = indices[-1] + padding
+    if n_samples is not None:
+        stop = min(stop, n_samples - 1)
     return np.arange(start, stop + 1, dtype=int)
 
 
@@ -131,16 +133,13 @@ def find_peaks(ccwfs, index,
                pmt_samp_wid = 25*units.ns,
                sipm_samp_wid = 1*units.mus,
                sipm_wfs=None, thr_sipm_s2=0,
-               s1_padding=0):
+               s1_padding=0, return_indices=False):
     ccwfs = np.array(ccwfs, ndmin=2)
 
     peaks           = []
     times           = np.arange     (ccwfs.shape[1]) * pmt_samp_wid
     widths          = np.full       (ccwfs.shape[1],   pmt_samp_wid)
     indices_split = split_in_peaks(index, stride)
-    if s1_padding and Pk is S1:
-        indices_split = tuple(pad_indices(indices, s1_padding)
-                              for indices in indices_split)
     selected_splits = select_peaks  (indices_split, time, length, pmt_samp_wid)
     with_sipms      = Pk is S2 and sipm_wfs is not None
 
@@ -152,6 +151,8 @@ def find_peaks(ccwfs, index,
                         pmt_samp_wid, sipm_samp_wid,
                         sipm_wfs, thr_sipm_s2)
         peaks.append(pk)
+    if return_indices:
+        return peaks, tuple(selected_splits)
     return peaks
 
 
@@ -176,12 +177,32 @@ def get_pmap_dual_gain(cbswf_hg, cbswf_lg, s1_indx, s2_indx, sipm_zs_wf,
     if s1_waveform not in ('hg', 'lg'):
         raise ValueError("s1_waveform must be either 'hg' or 'lg'")
 
-    s1_wfs = cbswf_lg if s1_waveform == 'lg' else cbswf_hg
+    hg_selection = find_peaks(cbswf_hg, s1_indx, Pk=S1, pmt_ids=pmt_ids,
+                              pmt_samp_wid=pmt_samp_wid,
+                              return_indices=True,
+                              **s1_params)
+    if len(hg_selection) == 2:
+        hg_peaks, selected_s1_indices = hg_selection
+    else:
+        hg_peaks, selected_s1_indices = hg_selection, ()
 
-    return PMap(find_peaks(s1_wfs, s1_indx, Pk=S1, pmt_ids=pmt_ids,
-                           pmt_samp_wid=pmt_samp_wid,
-                           s1_padding=s1_pading,
-                           **s1_params),
+    if s1_waveform == 'hg':
+        s1_peaks = hg_peaks
+    else:
+        padded_indices = tuple(pad_indices(indices, s1_pading, cbswf_lg.shape[1])
+                               for indices in selected_s1_indices)
+        times = np.arange(cbswf_lg.shape[1]) * pmt_samp_wid
+        widths = np.full(cbswf_lg.shape[1], pmt_samp_wid)
+        s1_peaks = [build_peak(indices, times, widths,
+                               cbswf_lg, pmt_ids,
+                               s1_params['rebin_stride'],
+                               with_sipms=False, Pk=S1,
+                               pmt_samp_wid=pmt_samp_wid,
+                               sipm_samp_wid=sipm_samp_wid,
+                               sipm_wfs=None, thr_sipm_s2=0)
+                    for indices in padded_indices]
+
+    return PMap(s1_peaks,
                 find_peaks(cbswf_lg, s2_indx, Pk=S2, pmt_ids=pmt_ids,
                            sipm_wfs      = sipm_zs_wf,
                            thr_sipm_s2   = thr_sipm_s2,

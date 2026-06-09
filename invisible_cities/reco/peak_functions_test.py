@@ -528,7 +528,7 @@ def test_get_pmap_dual_gain_adds_symmetric_padding_to_s1_indices():
     widths = np.full(8, 25 * units.ns)
     cbswf_hg = np.zeros((1, 8))
     cbswf_lg = np.zeros((1, 8))
-    s1_indx = np.array([4, 5])
+    s1_indx = np.array([2, 3, 4, 5, 6, 7])
     s2_indx = np.array([0])
     pmt_ids = np.arange(1)
 
@@ -551,7 +551,7 @@ def test_get_pmap_dual_gain_adds_symmetric_padding_to_s1_indices():
                                  s1_waveform='lg',
                                  s1_pading=2)
 
-    assert np.array_equal(pmap.s1s[0].times, times[[2, 3, 4, 5, 6, 7]])
+    assert np.array_equal(pmap.s1s[0].times, times)
 
 
 def test_get_pmap(s1_and_s2_with_indices):

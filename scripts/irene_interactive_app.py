@@ -771,7 +771,13 @@ def main():
             use_container_width=True,
         )
     with col8:
-        padded_s1 = padded_s1_regions(s1_indices, int(s1_stride), t_us, float(fiber_samp_wid), padding=int(S1_PADDING_DEFAULT))
+        padded_selected_s1 = padded_s1_regions(
+            np.concatenate(s1_selected) if s1_selected else np.array([], dtype=int),
+            int(s1_stride),
+            t_us,
+            float(fiber_samp_wid),
+            padding=int(S1_PADDING_DEFAULT),
+        )
         st.plotly_chart(
             threshold_plot(
                 t_us,
@@ -784,7 +790,7 @@ def main():
                 "#1e8e5a",
                 "#c73e3e",
                 allowed_window=(float(s2_tmin_us), float(s2_tmax_us)),
-                extra_regions=padded_s1,
+                extra_regions=padded_selected_s1,
             ),
             use_container_width=True,
         )
