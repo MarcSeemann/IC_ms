@@ -222,6 +222,39 @@ def discover_ldc_files(analysis_dir: str, run_number: int, ldc: int):
     return sorted(glob.glob(pattern))
 
 
+def inject_sidebar_number_styles():
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] div[data-testid="stNumberInput"] {
+            background: #ffffff;
+            border: 1.5px solid #9ca3af;
+            border-radius: 0.55rem;
+            padding: 0.15rem 0.35rem;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stNumberInput"]:focus-within {
+            border-color: #0b5fff;
+            box-shadow: 0 0 0 3px rgba(11, 95, 255, 0.12);
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stNumberInput"] input {
+            background: transparent;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def sidebar_labeled_number_input(label, **kwargs):
+    label_col, input_col = st.columns([2, 1])
+    label_col.markdown(f"**{label}**")
+    with input_col:
+        return st.number_input(label, label_visibility="collapsed", **kwargs)
+
+
 @st.cache_data(show_spinner=False)
 def get_dataset_shape(file_path: str):
     with tb.open_file(file_path, "r") as h5in:
@@ -431,6 +464,7 @@ def threshold_plot(
 
 def main():
     st.set_page_config(page_title="Irene Interactive Pipeline", layout="wide")
+    inject_sidebar_number_styles()
     st.title("Irene Interactive Pipeline")
     st.caption("Select run/event/channel and tune pipeline parameters live.")
 
@@ -463,7 +497,7 @@ def main():
         n_events, n_fibers, n_samples = get_dataset_shape(selected_file)
 
         event_idx_requested = st.number_input(
-            "Event index",
+            "Event index (run-level)",
             min_value=0,
             max_value=int(n_events) - 1,
             value=min(12, int(n_events) - 1),
@@ -476,7 +510,7 @@ def main():
         fiber_ch_requested = st.number_input(
             "Fiber channel",
             min_value=0,
-            max_value=100000,
+            max_value=10000000,
             value=4,
             step=1,
         )
@@ -485,36 +519,45 @@ def main():
             st.warning(f"Requested fiber channel {int(fiber_ch_requested)} exceeds max {int(n_fibers) - 1}. Using {fiber_ch}.")
 
         detector_db = st.selectbox("Detector DB", ["hddemojb", "hddemo"], index=0)
-
+        
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
         st.header("Parameters")
-        n_baseline = st.number_input("N_BASELINE", min_value=100, max_value=n_samples, value=N_BASELINE_DEFAULT, step=100)
-        n_maw_s1 = st.number_input("N_MAW_S1", min_value=1, max_value=5000, value=N_MAW_S1_DEFAULT, step=1)
-        n_maw_s2 = st.number_input("N_MAW_S2", min_value=1, max_value=5000, value=N_MAW_S2_DEFAULT, step=1)
-        fiber_samp_wid = st.number_input("FIBER_SAMP_WID (ns)", min_value=1.0, max_value=1000.0, value=FIBER_SAMP_WID_NS_DEFAULT, step=1.0)
-        fiber_cutoff_mhz = st.number_input("FIBER_CUTOFF_FREQ_MHZ", min_value=0.1, max_value=100.0, value=FIBER_CUTOFF_MHZ_DEFAULT, step=0.1)
-        thr_csum_s1 = st.number_input("THR_CSUM_S1 (pes)", min_value=0.0, max_value=1e6, value=THR_CSUM_S1_DEFAULT, step=1.0)
-        thr_csum_s2 = st.number_input("THR_CSUM_S2 (pes)", min_value=0.0, max_value=1e6, value=THR_CSUM_S2_DEFAULT, step=1.0)
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
+        n_baseline = sidebar_labeled_number_input("N_BASELINE", min_value=100, max_value=n_samples, value=N_BASELINE_DEFAULT, step=100)
+        n_maw_s1 = sidebar_labeled_number_input("N_MAW_S1", min_value=1, max_value=5000, value=N_MAW_S1_DEFAULT, step=1)
+        n_maw_s2 = sidebar_labeled_number_input("N_MAW_S2", min_value=1, max_value=5000, value=N_MAW_S2_DEFAULT, step=1)
+        fiber_cutoff_mhz = sidebar_labeled_number_input("FIBER_CUTOFF_FREQ_MHZ", min_value=0.1, max_value=100.0, value=FIBER_CUTOFF_MHZ_DEFAULT, step=0.1)
+        thr_csum_s1 = sidebar_labeled_number_input("THR_CSUM_S1 (pes)", min_value=0.0, max_value=1e6, value=THR_CSUM_S1_DEFAULT, step=1.0)
+        thr_csum_s2 = sidebar_labeled_number_input("THR_CSUM_S2 (pes)", min_value=0.0, max_value=1e6, value=THR_CSUM_S2_DEFAULT, step=1.0)
 
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
         st.subheader("S1 selection")
-        s1_tmin_us = st.number_input("s1_tmin (us)", min_value=0.0, max_value=1e6, value=S1_TMIN_US_DEFAULT, step=1.0)
-        s1_tmax_us = st.number_input("s1_tmax (us)", min_value=0.0, max_value=1e6, value=S1_TMAX_US_DEFAULT, step=1.0)
-        s1_stride = st.number_input("s1_stride", min_value=1, max_value=10000, value=S1_STRIDE_DEFAULT, step=1)
-        s1_lmin = st.number_input("s1_lmin", min_value=1, max_value=1000000, value=S1_LMIN_DEFAULT, step=1)
-        s1_lmax = st.number_input("s1_lmax", min_value=1, max_value=1000000, value=S1_LMAX_DEFAULT, step=1)
-        s1_rebin_stride = st.number_input("s1_rebin_stride", min_value=1, max_value=100000, value=S1_REBIN_STRIDE_DEFAULT, step=1)
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
+        s1_tmin_us = sidebar_labeled_number_input("s1_tmin (us)", min_value=0.0, max_value=1e6, value=S1_TMIN_US_DEFAULT, step=1.0)
+        s1_tmax_us = sidebar_labeled_number_input("s1_tmax (us)", min_value=0.0, max_value=1e6, value=S1_TMAX_US_DEFAULT, step=1.0)
+        s1_stride = sidebar_labeled_number_input("s1_stride", min_value=1, max_value=10000, value=S1_STRIDE_DEFAULT, step=1)
+        s1_lmin = sidebar_labeled_number_input("s1_lmin", min_value=1, max_value=1000000, value=S1_LMIN_DEFAULT, step=1)
+        s1_lmax = sidebar_labeled_number_input("s1_lmax", min_value=1, max_value=1000000, value=S1_LMAX_DEFAULT, step=1)
+        s1_rebin_stride = sidebar_labeled_number_input("s1_rebin_stride", min_value=1, max_value=100000, value=S1_REBIN_STRIDE_DEFAULT, step=1)
 
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
         st.subheader("S2 selection")
-        s2_tmin_us = st.number_input("s2_tmin (us)", min_value=0.0, max_value=1e6, value=S2_TMIN_US_DEFAULT, step=1.0)
-        s2_tmax_us = st.number_input("s2_tmax (us)", min_value=0.0, max_value=1e6, value=S2_TMAX_US_DEFAULT, step=1.0)
-        s2_stride = st.number_input("s2_stride", min_value=1, max_value=10000, value=S2_STRIDE_DEFAULT, step=1)
-        s2_lmin = st.number_input("s2_lmin", min_value=1, max_value=1000000, value=S2_LMIN_DEFAULT, step=1)
-        s2_lmax = st.number_input("s2_lmax", min_value=1, max_value=1000000, value=S2_LMAX_DEFAULT, step=1)
-        s2_rebin_stride = st.number_input("s2_rebin_stride", min_value=1, max_value=100000, value=S2_REBIN_STRIDE_DEFAULT, step=1)
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
 
+        s2_tmin_us = sidebar_labeled_number_input("s2_tmin (us)", min_value=0.0, max_value=1e6, value=S2_TMIN_US_DEFAULT, step=1.0)
+        s2_tmax_us = sidebar_labeled_number_input("s2_tmax (us)", min_value=0.0, max_value=1e6, value=S2_TMAX_US_DEFAULT, step=1.0)
+        s2_stride = sidebar_labeled_number_input("s2_stride", min_value=1, max_value=10000, value=S2_STRIDE_DEFAULT, step=1)
+        s2_lmin = sidebar_labeled_number_input("s2_lmin", min_value=1, max_value=1000000, value=S2_LMIN_DEFAULT, step=1)
+        s2_lmax = sidebar_labeled_number_input("s2_lmax", min_value=1, max_value=1000000, value=S2_LMAX_DEFAULT, step=1)
+        s2_rebin_stride = sidebar_labeled_number_input("s2_rebin_stride", min_value=1, max_value=100000, value=S2_REBIN_STRIDE_DEFAULT, step=1)
+
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
         st.subheader("PMAP sampling")
-        thr_sipm_s2 = st.number_input("thr_sipm_s2 (pes)", min_value=0.0, max_value=1e6, value=THR_SIPM_S2_DEFAULT, step=0.1)
-        pmt_samp_wid_ns = st.number_input("pmt_samp_wid (ns)", min_value=1.0, max_value=1000.0, value=PMT_SAMP_WID_NS_DEFAULT, step=1.0)
-        sipm_samp_wid_us = st.number_input("sipm_samp_wid (us)", min_value=0.1, max_value=1000.0, value=SIPM_SAMP_WID_US_DEFAULT, step=0.1)
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
+        thr_sipm_s2 = sidebar_labeled_number_input("thr_sipm_s2 (pes)", min_value=0.0, max_value=1e6, value=THR_SIPM_S2_DEFAULT, step=0.1)
+        pmt_samp_wid_ns = sidebar_labeled_number_input("pmt_samp_wid (ns)", min_value=1.0, max_value=1000.0, value=PMT_SAMP_WID_NS_DEFAULT, step=1.0)
+        fiber_samp_wid = sidebar_labeled_number_input("FIBER_SAMP_WID (ns)", min_value=1.0, max_value=1000.0, value=FIBER_SAMP_WID_NS_DEFAULT, step=1.0)
+        sipm_samp_wid_us = sidebar_labeled_number_input("sipm_samp_wid (us)", min_value=0.1, max_value=1000.0, value=SIPM_SAMP_WID_US_DEFAULT, step=0.1)
 
     st.info(
         f"Run {int(run_number)} | LDC {ldc} | {selected_file_name} | "
