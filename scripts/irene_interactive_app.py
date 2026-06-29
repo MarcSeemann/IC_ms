@@ -21,7 +21,7 @@ from invisible_cities.core.configure import read_config_file
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 os.environ.setdefault("ICTDIR", str(ROOT_DIR))
-DATA_DIR = ROOT_DIR / "data"
+ANALYSIS_DIR = Path("/analysis")
 SIPM_POSITIONS_CSV = ROOT_DIR / "scripts" / "hddemo_db_elecid_positions.csv"
 
 # Candidate-selection defaults loaded from the Irene config file.
@@ -56,47 +56,6 @@ SIPM_SAMP_WID_US_DEFAULT = float(CFG.get("sipm_samp_wid", 1 * units.mus)) / unit
 FIBER_SAMP_WID_NS_DEFAULT = float(CFG.get("fiber_samp_wid", 25 * units.ns)) / units.ns
 
 
-def parse_run_number(path: str) -> int:
-    name = Path(path).name
-    parts = name.split("_")
-    if len(parts) > 1 and parts[1].isdigit():
-        return int(parts[1])
-    return -1
-
-
-def parse_chunk_number(path: str) -> int:
-    name = Path(path).name
-    parts = name.split("_")
-    if len(parts) > 2 and parts[2].isdigit():
-        return int(parts[2])
-    return 10**9
-
-
-def files_for_run(files, run_number: int):
-    run_files = [f for f in files if parse_run_number(f) == int(run_number)]
-    return sorted(run_files, key=lambda p: (parse_chunk_number(p), Path(p).name))
-
-
-def resolve_event_location(run_files, global_event_idx: int):
-    """Map a run-level event index to (file, local_event_index)."""
-    if not run_files:
-        return None, None, 0, 0, True
-
-    remaining = int(max(0, global_event_idx))
-    total_events = 0
-
-    for f in run_files:
-        n_events, _, _ = get_dataset_shape(f)
-        total_events += int(n_events)
-        if remaining < n_events:
-            return f, remaining, total_events, remaining, False
-        remaining -= int(n_events)
-
-    # Requested event is beyond the run total; clamp to last available event.
-    last_file = run_files[-1]
-    last_n_events, _, _ = get_dataset_shape(last_file)
-    local_idx = max(0, int(last_n_events) - 1)
-    return last_file, local_idx, total_events, int(global_event_idx), True
 
 
 def split_contiguous(indices: np.ndarray):
@@ -251,8 +210,15 @@ def build_stage_a_report(s1_analyzed, s2_analyzed, pmap_evt, pmap_error):
     return "\n".join(lines)
 
 
-def discover_waveform_files(data_dir: str):
-    pattern = str(Path(data_dir) / "run_*_ldc1_trg0.waveforms.h5")
+@st.cache_data(show_spinner=False)
+def discover_run_numbers(analysis_dir: str):
+    runs = [int(p.name) for p in Path(analysis_dir).iterdir() if p.is_dir() and p.name.isdigit()]
+    return sorted(runs)
+
+
+@st.cache_data(show_spinner=False)
+def discover_ldc_files(analysis_dir: str, run_number: int, ldc: int):
+    pattern = str(Path(analysis_dir) / str(run_number) / "hdf5" / "data" / f"ldc{ldc}" / "*.waveforms.h5")
     return sorted(glob.glob(pattern))
 
 
@@ -469,62 +435,44 @@ def main():
     st.title("Irene Interactive Pipeline")
     st.caption("Select run/event/channel and tune pipeline parameters live.")
 
-    files = discover_waveform_files(str(DATA_DIR))
-    if not files:
-        st.error(f"No waveform files found in {DATA_DIR}")
-        st.stop()
-
-    available_runs = sorted({parse_run_number(f) for f in files if parse_run_number(f) >= 0})
+    available_runs = discover_run_numbers(str(ANALYSIS_DIR))
     if not available_runs:
-        st.error(f"No valid run files found in {DATA_DIR}")
+        st.error(f"No run directories found under {ANALYSIS_DIR}")
         st.stop()
-
-    default_run = 1128 if 1128 in available_runs else int(available_runs[0])
 
     with st.sidebar:
         st.header("Input")
-        if st.button("Refresh run files"):
+        if st.button("Refresh"):
             st.cache_data.clear()
             st.rerun()
 
-        run_number = st.number_input(
-            "Run number",
-            min_value=0,
-            max_value=999999,
-            value=int(default_run),
-            step=1,
-        )
+        run_number = st.selectbox("Run number", options=available_runs[::-1], index=0)
 
-        run_files = files_for_run(files, int(run_number))
-        if not run_files:
-            st.error(f"No files found for run {int(run_number)} in {DATA_DIR}")
+        ldc = st.selectbox("LDC", options=[1, 2], index=0)
+
+        ldc_files = discover_ldc_files(str(ANALYSIS_DIR), int(run_number), int(ldc))
+        if not ldc_files:
+            st.error(f"No files found for run {run_number}, ldc{ldc}")
             st.stop()
 
-        chunk_count = sum(1 for f in run_files if parse_chunk_number(f) < 10**9)
-        if chunk_count:
-            st.caption(f"Available chunks for run {int(run_number)}: {chunk_count}")
-
-        event_idx_requested = st.number_input(
-            "Event index (run-level)",
-            min_value=0,
-            max_value=10000000,
-            value=12,
-            step=1,
-        )
-
-        selected_file, event_idx, total_events_in_run, _, event_clamped = resolve_event_location(
-            run_files, int(event_idx_requested)
+        file_names = [Path(f).name for f in ldc_files]
+        selected_file_name = st.selectbox("File", options=file_names[::-1], index=0)
+        selected_file = str(
+            Path(ANALYSIS_DIR) / str(run_number) / "hdf5" / "data" / f"ldc{ldc}" / selected_file_name
         )
 
         n_events, n_fibers, n_samples = get_dataset_shape(selected_file)
-        file_name = Path(selected_file).name
-        if event_clamped:
-            st.warning(
-                f"Requested event {int(event_idx_requested)} exceeds run total ({int(total_events_in_run) - 1} max). "
-                f"Using last event from {file_name}."
-            )
-        else:
-            st.caption(f"Using file: {file_name} | local event index: {int(event_idx)}")
+
+        event_idx_requested = st.number_input(
+            "Event index",
+            min_value=0,
+            max_value=int(n_events) - 1,
+            value=min(12, int(n_events) - 1),
+            step=1,
+        )
+        event_idx = int(event_idx_requested)
+
+        st.caption(f"File: {selected_file_name} | events: {n_events}")
 
         fiber_ch_requested = st.number_input(
             "Fiber channel",
@@ -570,9 +518,8 @@ def main():
         sipm_samp_wid_us = st.number_input("sipm_samp_wid (us)", min_value=0.1, max_value=1000.0, value=SIPM_SAMP_WID_US_DEFAULT, step=0.1)
 
     st.info(
-        f"Run {int(run_number)} | Requested event {int(event_idx_requested)} | "
-        f"Using {Path(selected_file).name} (local event {int(event_idx)}/{n_events - 1}) | "
-        f"Channel {fiber_ch}/{n_fibers - 1} | Samples {n_samples}"
+        f"Run {int(run_number)} | LDC {ldc} | {selected_file_name} | "
+        f"Event {event_idx}/{n_events - 1} | Channel {fiber_ch}/{n_fibers - 1} | Samples {n_samples}"
     )
 
     try:
@@ -820,7 +767,6 @@ def main():
                 "event_idx_requested": int(event_idx_requested),
                 "event_idx_local": int(event_idx),
                 "n_events_file": int(n_events),
-                "n_events_run_total": int(total_events_in_run),
                 "detector_db": detector_db,
                 "event_idx": int(event_idx),
                 "fiber_ch": int(fiber_ch),
