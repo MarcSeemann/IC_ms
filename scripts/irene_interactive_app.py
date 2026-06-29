@@ -464,6 +464,7 @@ def threshold_plot(
 
 
 def main():
+    st.set_option("theme.base", "light")
     st.set_page_config(page_title="Irene Interactive Pipeline", layout="wide")
     st.title("Irene Interactive Pipeline")
     st.caption("Select run/event/channel and tune pipeline parameters live.")
