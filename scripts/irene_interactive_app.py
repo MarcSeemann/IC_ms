@@ -56,7 +56,110 @@ SIPM_SAMP_WID_US_DEFAULT = float(CFG.get("sipm_samp_wid", 1 * units.mus)) / unit
 FIBER_SAMP_WID_NS_DEFAULT = float(CFG.get("fiber_samp_wid", 25 * units.ns)) / units.ns
 
 
+def write_parameters_to_file(file_path, params):
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
 
+    values = dict(params)
+
+    int_keys = {
+        "n_baseline",
+        "n_maw_s1",
+        "n_maw_s2",
+        "s1_tmin",
+        "s1_tmax",
+        "s1_stride",
+        "s1_lmin",
+        "s1_lmax",
+        "s1_rebin_stride",
+        "s1_pading",
+        "s2_tmin",
+        "s2_tmax",
+        "s2_stride",
+        "s2_lmin",
+        "s2_lmax",
+        "s2_rebin_stride",
+        "pmt_samp_wid",
+        "fiber_samp_wid",
+        "sipm_samp_wid",
+    }
+    float_keys = {
+        "fiber_cutoff_freq_MHz",
+        "thr_csum_s1",
+        "thr_csum_s2",
+        "thr_sipm_s2",
+    }
+
+    def format_value(key, value):
+        if key in int_keys:
+            return str(int(value))
+        if key in float_keys:
+            return repr(float(value))
+        return str(value)
+
+    template = f"""files_in = '$ICDIR/database/test_data/electrons_40keV_z25_RWF.h5'
+
+# REPLACE /tmp with your output directory
+file_out = '/tmp/electrons_40keV_z25_PMP.h5'
+
+# compression library
+compression = 'ZLIB4'
+
+# run number 0 is for MC
+run_number = 1
+detector_db = 'hddemojb'
+
+# How frequently to print events
+print_mod = 1
+
+# max number of events to run
+event_range =  999
+
+n_baseline =   {format_value('n_baseline', values.get('n_baseline', 2800))} # for a window of 800 mus
+
+# Set MAW for calibrated sums
+n_maw_s1 = {format_value('n_maw_s1', values.get('n_maw_s1', 20))}
+n_maw_s2 = {format_value('n_maw_s2', values.get('n_maw_s2', 1))}
+thr_maw =   0.1 * adc
+
+fiber_cutoff_freq_MHz = {format_value('fiber_cutoff_freq_MHz', values.get('fiber_cutoff_freq_MHz', 3.0))}
+
+# Set thresholds for calibrated sum
+thr_csum_s1 = {format_value('thr_csum_s1', values.get('thr_csum_s1', 2.0))} * pes
+thr_csum_s2 = {format_value('thr_csum_s2', values.get('thr_csum_s2', 4.0))} * pes
+
+# Set thresholds for SiPM
+thr_sipm      = {format_value('thr_sipm_s2', values.get('thr_sipm_s2', 1.5))} * pes
+thr_sipm_type = common
+
+# Set parameters to search for S1
+# Notice that in MC file S1 is in t=100 mus
+s1_tmin       = {format_value('s1_tmin', values.get('s1_tmin', 50))} * mus # position of S1 in MC files at 100 mus
+s1_tmax       = {format_value('s1_tmax', values.get('s1_tmax', 250))} * mus # change tmin and tmax if S1 not at 100 mus
+s1_stride     =   {format_value('s1_stride', values.get('s1_stride', 5))}       # minimum number of 25 ns bins in S1 searches
+s1_lmin       =   {format_value('s1_lmin', values.get('s1_lmin', 30))}       # 8 x 25 = 200 ns
+s1_lmax       =  {format_value('s1_lmax', values.get('s1_lmax', 250))}       # 20 x 25 = 500 ns
+s1_rebin_stride = {format_value('s1_rebin_stride', values.get('s1_rebin_stride', 1))}       # Do not rebin S1 by default
+s1_pading     = {format_value('s1_pading', values.get('s1_pading', 10))}      # Add 10 samples on both sides of each S1 peak index
+
+# Set parameters to search for S2
+s2_tmin     =    {format_value('s2_tmin', values.get('s2_tmin', 245))} * mus # assumes S1 at 100 mus, change if S1 not at 100 mus
+s2_tmax     =    {format_value('s2_tmax', values.get('s2_tmax', 290))} * mus # end of the window
+s2_stride   =     {format_value('s2_stride', values.get('s2_stride', 2))}       #  40 x 25 = 1   mus
+s2_lmin     =    {format_value('s2_lmin', values.get('s2_lmin', 250))}       # 100 x 25 = 2.5 mus
+s2_lmax     = {format_value('s2_lmax', values.get('s2_lmax', 100000))}       # maximum value of S2 width
+s2_rebin_stride = {format_value('s2_rebin_stride', values.get('s2_rebin_stride', 40))}       # Rebin by default, 40 25 ns time bins to make one 1us time bin
+
+# Set S2Si parameters
+thr_sipm_s2 = {format_value('thr_sipm_s2', values.get('thr_sipm_s2', 1.5))} * pes  # Threshold for the full sipm waveform
+
+pmt_samp_wid  = {format_value('pmt_samp_wid', values.get('pmt_samp_wid', 25))} * ns
+fiber_samp_wid = {format_value('fiber_samp_wid', values.get('fiber_samp_wid', 25))} * ns
+sipm_samp_wid = {format_value('sipm_samp_wid', values.get('sipm_samp_wid', 1))} * mus
+"""
+
+    path.write_text(template)
 
 def split_contiguous(indices: np.ndarray):
     if len(indices) == 0:
@@ -253,6 +356,76 @@ def sidebar_labeled_number_input(label, **kwargs):
     label_col.markdown(f"**{label}**")
     with input_col:
         return st.number_input(label, label_visibility="collapsed", **kwargs)
+
+
+def write_parameters_to_file(file_path, params):
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+    values = dict(params)
+    template = f"""files_in = '$ICDIR/database/test_data/electrons_40keV_z25_RWF.h5'
+
+# REPLACE /tmp with your output directory
+file_out = '/tmp/electrons_40keV_z25_PMP.h5'
+
+# compression library
+compression = 'ZLIB4'
+
+# run number 0 is for MC
+run_number = 1
+detector_db = 'hddemojb'
+
+# How frequently to print events
+print_mod = 1
+
+# max number of events to run
+event_range =  999
+
+n_baseline =   {values.get('n_baseline', 2800)} # for a window of 800 mus
+
+# Set MAW for calibrated sums
+n_maw_s1 = {values.get('n_maw_s1', 20)}
+n_maw_s2 = {values.get('n_maw_s2', 1)}
+thr_maw =   0.1 * adc
+
+fiber_cutoff_freq_MHz = {values.get('fiber_cutoff_freq_MHz', 3)}
+
+# Set thresholds for calibrated sum
+thr_csum_s1 = {values.get('thr_csum_s1', 2.0)} * pes
+thr_csum_s2 = {values.get('thr_csum_s2', 4.0)} * pes
+
+# Set thresholds for SiPM
+thr_sipm      = {values.get('thr_sipm_s2', 1.5)} * pes
+thr_sipm_type = common
+
+# Set parameters to search for S1
+# Notice that in MC file S1 is in t=100 mus
+s1_tmin       = {values.get('s1_tmin', 50)} * mus # position of S1 in MC files at 100 mus
+s1_tmax       = {values.get('s1_tmax', 250)} * mus # change tmin and tmax if S1 not at 100 mus
+s1_stride     =   {values.get('s1_stride', 5)}       # minimum number of 25 ns bins in S1 searches
+s1_lmin       =   {values.get('s1_lmin', 30)}       # 8 x 25 = 200 ns
+s1_lmax       =  {values.get('s1_lmax', 250)}       # 20 x 25 = 500 ns
+s1_rebin_stride = {values.get('s1_rebin_stride', 1)}       # Do not rebin S1 by default
+s1_pading     = {values.get('s1_pading', 10)}      # Add 10 samples on both sides of each S1 peak index
+
+# Set parameters to search for S2
+s2_tmin     =    {values.get('s2_tmin', 245)} * mus # assumes S1 at 100 mus, change if S1 not at 100 mus
+s2_tmax     =    {values.get('s2_tmax', 290)} * mus # end of the window
+s2_stride   =     {values.get('s2_stride', 2)}       #  40 x 25 = 1   mus
+s2_lmin     =    {values.get('s2_lmin', 250)}       # 100 x 25 = 2.5 mus
+s2_lmax     = {values.get('s2_lmax', 100000)}       # maximum value of S2 width
+s2_rebin_stride = {values.get('s2_rebin_stride', 40)}       # Rebin by default, 40 25 ns time bins to make one 1us time bin
+
+# Set S2Si parameters
+thr_sipm_s2 = {values.get('thr_sipm_s2', 1.5)} * pes  # Threshold for the full sipm waveform
+
+pmt_samp_wid  = {values.get('pmt_samp_wid', 25)} * ns
+fiber_samp_wid = {values.get('fiber_samp_wid', 25)} * ns
+sipm_samp_wid = {values.get('sipm_samp_wid', 1)} * mus
+"""
+
+    path.write_text(template)
 
 
 @st.cache_data(show_spinner=False)
@@ -539,6 +712,7 @@ def main():
         s1_lmin = sidebar_labeled_number_input("s1_lmin", min_value=1, max_value=1000000, value=S1_LMIN_DEFAULT, step=1)
         s1_lmax = sidebar_labeled_number_input("s1_lmax", min_value=1, max_value=1000000, value=S1_LMAX_DEFAULT, step=1)
         s1_rebin_stride = sidebar_labeled_number_input("s1_rebin_stride", min_value=1, max_value=100000, value=S1_REBIN_STRIDE_DEFAULT, step=1)
+        s1_padding = sidebar_labeled_number_input("s1_padding", min_value=0, max_value=1000, value=S1_PADDING_DEFAULT, step=1)
 
         st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
         st.subheader("S2 selection")
@@ -558,6 +732,39 @@ def main():
         pmt_samp_wid_ns = sidebar_labeled_number_input("pmt_samp_wid (ns)", min_value=1.0, max_value=1000.0, value=PMT_SAMP_WID_NS_DEFAULT, step=1.0)
         fiber_samp_wid = sidebar_labeled_number_input("FIBER_SAMP_WID (ns)", min_value=1.0, max_value=1000.0, value=FIBER_SAMP_WID_NS_DEFAULT, step=1.0)
         sipm_samp_wid_us = sidebar_labeled_number_input("sipm_samp_wid (us)", min_value=0.1, max_value=1000.0, value=SIPM_SAMP_WID_US_DEFAULT, step=0.1)
+
+        st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
+        if st.button("Save current values to irene.conf", use_container_width=True):
+            config_updates = {
+                "n_baseline": int(n_baseline),
+                "n_maw_s1": int(n_maw_s1),
+                "n_maw_s2": int(n_maw_s2),
+                "fiber_cutoff_freq_MHz": float(fiber_cutoff_mhz),
+                "thr_csum_s1": float(thr_csum_s1),
+                "thr_csum_s2": float(thr_csum_s2),
+                "s1_tmin": float(s1_tmin_us),
+                "s1_tmax": float(s1_tmax_us),
+                "s1_stride": int(s1_stride),
+                "s1_lmin": int(s1_lmin),
+                "s1_lmax": int(s1_lmax),
+                "s1_rebin_stride": int(s1_rebin_stride),
+                "s1_pading": int(s1_padding),
+                "s2_tmin": float(s2_tmin_us),
+                "s2_tmax": float(s2_tmax_us),
+                "s2_stride": int(s2_stride),
+                "s2_lmin": int(s2_lmin),
+                "s2_lmax": int(s2_lmax),
+                "s2_rebin_stride": int(s2_rebin_stride),
+                "thr_sipm_s2": float(thr_sipm_s2),
+                "pmt_samp_wid": float(pmt_samp_wid_ns),
+                "fiber_samp_wid": float(fiber_samp_wid),
+                "sipm_samp_wid": float(sipm_samp_wid_us),
+            }
+            try:
+                write_parameters_to_file(CONFIG_FILE, config_updates)
+                st.success(f"Saved {len(config_updates)} numeric values to {CONFIG_FILE.name}")
+            except Exception as exc:
+                st.error(f"Failed to save configuration: {exc}")
 
     st.info(
         f"Run {int(run_number)} | LDC {ldc} | {selected_file_name} | "
@@ -630,7 +837,7 @@ def main():
                 float(s2_tmax_us) * units.mus,
                 float(s2_tmin_us) * units.mus,
                 float(thr_sipm_s2),
-                s1_pading=int(S1_PADDING_DEFAULT),
+                s1_pading=int(s1_padding),
             )
             pmap_evt = pmap_builder(cbsfiber_hg_maw, cbsfiber_lg_maw, s1_indices, s2_indices, None)
         except Exception as e:
@@ -766,7 +973,7 @@ def main():
             int(s1_stride),
             t_us,
             float(fiber_samp_wid),
-            padding=int(S1_PADDING_DEFAULT),
+            padding=int(s1_padding),
         )
         st.plotly_chart(
             threshold_plot(
