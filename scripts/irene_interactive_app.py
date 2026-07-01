@@ -2,6 +2,7 @@
 import os
 import glob
 import csv
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 os.environ.setdefault("ICTDIR", str(ROOT_DIR))
 ANALYSIS_DIR = Path("/analysis")
 SIPM_POSITIONS_CSV = ROOT_DIR / "scripts" / "hddemo_db_elecid_positions.csv"
+AUTHORIZED_PASSWORD_HASH = "a2242ead55c94c3deb7cf2340bfef9d5bcaca22dfe66e646745ee4371c633fc8"
 
 # Candidate-selection defaults loaded from the Irene config file.
 CONFIG_FILE = ROOT_DIR / "invisible_cities" / "config" / "irene.conf"
@@ -734,37 +736,43 @@ def main():
         sipm_samp_wid_us = sidebar_labeled_number_input("sipm_samp_wid (us)", min_value=0.1, max_value=1000.0, value=SIPM_SAMP_WID_US_DEFAULT, step=0.1)
 
         st.markdown('<hr style="margin: 0.2rem 0;">', unsafe_allow_html=True)
+        password = st.text_input("Password", type="password", placeholder="Enter password to save")
         if st.button("Save current values to irene.conf", use_container_width=True):
-            config_updates = {
-                "n_baseline": int(n_baseline),
-                "n_maw_s1": int(n_maw_s1),
-                "n_maw_s2": int(n_maw_s2),
-                "fiber_cutoff_freq_MHz": float(fiber_cutoff_mhz),
-                "thr_csum_s1": float(thr_csum_s1),
-                "thr_csum_s2": float(thr_csum_s2),
-                "s1_tmin": float(s1_tmin_us),
-                "s1_tmax": float(s1_tmax_us),
-                "s1_stride": int(s1_stride),
-                "s1_lmin": int(s1_lmin),
-                "s1_lmax": int(s1_lmax),
-                "s1_rebin_stride": int(s1_rebin_stride),
-                "s1_pading": int(s1_padding),
-                "s2_tmin": float(s2_tmin_us),
-                "s2_tmax": float(s2_tmax_us),
-                "s2_stride": int(s2_stride),
-                "s2_lmin": int(s2_lmin),
-                "s2_lmax": int(s2_lmax),
-                "s2_rebin_stride": int(s2_rebin_stride),
-                "thr_sipm_s2": float(thr_sipm_s2),
-                "pmt_samp_wid": float(pmt_samp_wid_ns),
-                "fiber_samp_wid": float(fiber_samp_wid),
-                "sipm_samp_wid": float(sipm_samp_wid_us),
-            }
-            try:
-                write_parameters_to_file(CONFIG_FILE, config_updates)
-                st.success(f"Saved {len(config_updates)} numeric values to {CONFIG_FILE.name}")
-            except Exception as exc:
-                st.error(f"Failed to save configuration: {exc}")
+            if not password:
+                st.error("Password required to save.")
+            elif hashlib.sha256(password.encode()).hexdigest() != AUTHORIZED_PASSWORD_HASH:
+                st.error("Incorrect password.")
+            else:
+                config_updates = {
+                    "n_baseline": int(n_baseline),
+                    "n_maw_s1": int(n_maw_s1),
+                    "n_maw_s2": int(n_maw_s2),
+                    "fiber_cutoff_freq_MHz": float(fiber_cutoff_mhz),
+                    "thr_csum_s1": float(thr_csum_s1),
+                    "thr_csum_s2": float(thr_csum_s2),
+                    "s1_tmin": float(s1_tmin_us),
+                    "s1_tmax": float(s1_tmax_us),
+                    "s1_stride": int(s1_stride),
+                    "s1_lmin": int(s1_lmin),
+                    "s1_lmax": int(s1_lmax),
+                    "s1_rebin_stride": int(s1_rebin_stride),
+                    "s1_pading": int(s1_padding),
+                    "s2_tmin": float(s2_tmin_us),
+                    "s2_tmax": float(s2_tmax_us),
+                    "s2_stride": int(s2_stride),
+                    "s2_lmin": int(s2_lmin),
+                    "s2_lmax": int(s2_lmax),
+                    "s2_rebin_stride": int(s2_rebin_stride),
+                    "thr_sipm_s2": float(thr_sipm_s2),
+                    "pmt_samp_wid": float(pmt_samp_wid_ns),
+                    "fiber_samp_wid": float(fiber_samp_wid),
+                    "sipm_samp_wid": float(sipm_samp_wid_us),
+                }
+                try:
+                    write_parameters_to_file(CONFIG_FILE, config_updates)
+                    st.success(f"Saved {len(config_updates)} numeric values to {CONFIG_FILE.name}")
+                except Exception as exc:
+                    st.error(f"Failed to save configuration: {exc}")
 
     st.info(
         f"Run {int(run_number)} | LDC {ldc} | {selected_file_name} | "
